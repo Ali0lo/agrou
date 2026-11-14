@@ -1,7 +1,9 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
+import { formatMessageForRecipient } from '../engine/ChatAuthorization.js';
 import { RoomManager } from '../engine/RoomManager.js';
 import { sanitizeStateForPlayer } from '../engine/StateSanitizer.js';
 import {
+  ChatChannel,
   NightActionPayload,
   PhaseTimers,
   RoleType,
@@ -98,10 +100,15 @@ export function registerSocketHandlers(
           sessionToken: result.player.sessionToken,
         });
 
-        for (const msg of result.room.messages.filter(
-          (m) => m.channel === 'PUBLIC' || m.channel === 'SYSTEM'
-        )) {
-          socket.emit('chat:message', msg);
+        for (const msg of result.room.messages) {
+          const formatted = formatMessageForRecipient(
+            result.room,
+            result.player,
+            msg
+          );
+          if (formatted) {
+            socket.emit('chat:message', formatted);
+          }
         }
 
         roomManager.broadcastSanitizedState(result.room.roomCode);
@@ -139,6 +146,17 @@ export function registerSocketHandlers(
           playerId: result.player.id,
           sessionToken: result.player.sessionToken,
         });
+
+        for (const msg of result.room.messages) {
+          const formatted = formatMessageForRecipient(
+            result.room,
+            result.player,
+            msg
+          );
+          if (formatted) {
+            socket.emit('chat:message', formatted);
+          }
+        }
 
         const sanitized = sanitizeStateForPlayer(result.room, result.player.id);
         socket.emit('room:state', sanitized);
@@ -260,15 +278,24 @@ export function registerSocketHandlers(
     socket.on(
       'chat:send',
       (payload: {
-        content: string;
-        channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS';
+        roomId?: string;
+        content?: string;
+        text?: string;
+        channel?: ChatChannel | string;
       }) => {
         if (!session.roomCode || !session.playerId) return;
+        if (
+          payload?.roomId &&
+          payload.roomId.toUpperCase() !== session.roomCode.toUpperCase()
+        ) {
+          emitError('CHAT_ERROR', 'Yanlış otaq identifikatoru.');
+          return;
+        }
         const res = roomManager.handleChatMessage({
           roomCode: session.roomCode,
           senderId: session.playerId,
-          content: payload?.content ?? '',
-          channel: payload?.channel ?? 'PUBLIC',
+          content: payload?.content ?? payload?.text ?? '',
+          channel: payload?.channel ?? 'public',
         });
         if (res.error) emitError('CHAT_ERROR', res.error);
       }

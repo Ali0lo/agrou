@@ -1011,7 +1011,8 @@ export class GameEngine {
       senderId: 'SYSTEM',
       senderName: 'Campfire Narrator',
       senderColor: '#f59e0b',
-      channel: 'SYSTEM',
+      channel: 'system',
+      channelBadge: '🔥 Sistem',
       content,
       timestamp: Date.now(),
     };

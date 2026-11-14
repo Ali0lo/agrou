@@ -182,15 +182,25 @@ export interface SanitizedRoomState {
   mvpAwards: MvpAward[];
 }
 
+export type ChatChannel =
+  | 'public'
+  | 'wolves'
+  | 'siblings'
+  | 'lovers'
+  | 'dead'
+  | 'system';
+
 export interface ChatMessage {
   id: string;
   senderId: string;
   senderName: string;
   senderColor: string;
-  channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS' | 'SYSTEM';
+  channel: ChatChannel;
+  channelBadge?: string;
   content: string;
   timestamp: number;
   isAnonymized?: boolean;
+  isSpiritMessage?: boolean;
 }
 
 export type NightActionType =

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { Server as SocketIOServer } from 'socket.io';
 import {
+  ChatChannel,
   ChatMessage,
   NightActionPayload,
   PhaseTimers,
@@ -8,6 +9,12 @@ import {
   RoleType,
   RoomState,
 } from '../types/game.js';
+import {
+  CHANNEL_BADGES,
+  canWriteToChannel,
+  formatMessageForRecipient,
+  normalizeChatChannel,
+} from './ChatAuthorization.js';
 import {
   createInitialRoomState,
   createPlayerState,
@@ -747,109 +754,71 @@ export class RoomManager {
   }
 
   /**
-   * Authoritative chat routing with strict channel isolation (PUBLIC, WOLF, GHOST, SISTERS).
-   * Medium can also communicate with dead players in GHOST chat during NIGHT_PHASE!
+   * Authoritative chat routing with strict server-side channel isolation:
+   * ('public' | 'wolves' | 'siblings' | 'lovers' | 'dead')
    */
   public handleChatMessage(params: {
     roomCode: string;
     senderId: string;
     content: string;
-    channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS';
+    channel?: ChatChannel | string;
   }): { error?: string } {
     const room = this.getRoom(params.roomCode);
-    if (!room) return { error: 'Room not found.' };
+    if (!room) return { error: 'Otaq tapılmadı.' };
 
     const sender = room.players.find((p) => p.id === params.senderId);
-    if (!sender) return { error: 'Player not found.' };
+    if (!sender) return { error: 'Oyunçu tapılmadı.' };
 
     const trimmed = params.content.trim().slice(0, 280);
     if (!trimmed) return {};
 
-    // 1. GHOST Channel (Dead players + living Medium during NIGHT_PHASE)
-    if (params.channel === 'GHOST') {
-      const isLivingMediumAtNight =
-        sender.isAlive &&
-        sender.role === 'MEDIUM' &&
-        !room.villagePowersLost &&
-        room.phase === 'NIGHT_PHASE';
-      if (sender.isAlive && !isLivingMediumAtNight && room.phase !== 'GAME_OVER') {
-        return { error: 'Only dead players (or the Medium at night) can speak in Ghost Chat.' };
-      }
-      const msg: ChatMessage = {
-        id: crypto.randomUUID(),
-        senderId: sender.id,
-        senderName: isLivingMediumAtNight
-          ? `👻 Ruhçağıran (${sender.nickname})`
-          : sender.nickname,
-        senderColor: sender.color,
-        channel: 'GHOST',
-        content: trimmed,
-        timestamp: Date.now(),
-      };
-      room.messages.push(msg);
-      this.deliverChatMessage(room, msg);
-      return {};
+    const channel = normalizeChatChannel(params.channel);
+
+    // Server-side authorization check for writing to this channel
+    const authCheck = canWriteToChannel(room, sender, channel);
+    if (!authCheck.allowed) {
+      return { error: authCheck.error ?? 'Bu kanala yazmaq icazəniz yoxdur.' };
     }
 
-    // 2. SISTERS Channel (Alive Two Sisters / Brothers)
-    if (params.channel === 'SISTERS') {
-      if (!sender.isAlive || sender.role !== 'SISTERS') {
-        return { error: 'Only living Sisters/Brothers can use the Sibling Chat.' };
-      }
-      const msg: ChatMessage = {
-        id: crypto.randomUUID(),
-        senderId: sender.id,
-        senderName: sender.nickname,
-        senderColor: '#38bdf8',
-        channel: 'SISTERS',
-        content: trimmed,
-        timestamp: Date.now(),
-      };
-      room.messages.push(msg);
-      this.deliverChatMessage(room, msg);
-      return {};
-    }
+    const isLivingMediumAtNight =
+      channel === 'dead' &&
+      sender.isAlive &&
+      sender.role === 'MEDIUM' &&
+      !room.villagePowersLost &&
+      room.phase === 'NIGHT_PHASE';
 
-    // 3. WOLF Channel (Alive Werewolves during NIGHT_PHASE)
-    if (params.channel === 'WOLF') {
-      if (room.phase !== 'NIGHT_PHASE') {
-        return { error: 'Werewolf chat is only active during the Night Phase.' };
-      }
-      if (!sender.isAlive || !isWolfPackRole(sender.role)) {
-        return { error: 'Only living Werewolves can use Werewolf Chat.' };
-      }
+    const isSpiritMessage = channel === 'dead' && !sender.isAlive;
 
-      const msg: ChatMessage = {
-        id: crypto.randomUUID(),
-        senderId: sender.id,
-        senderName: sender.nickname,
-        senderColor: '#ef4444',
-        channel: 'WOLF',
-        content: trimmed,
-        timestamp: Date.now(),
-      };
-      room.messages.push(msg);
-      this.deliverChatMessage(room, msg);
-      return {};
-    }
+    let senderName = sender.nickname;
+    let senderColor = sender.color;
 
-    // 4. PUBLIC Channel
-    if (!sender.isAlive && room.phase !== 'LOBBY' && room.phase !== 'GAME_OVER') {
-      return { error: 'Ghosts cannot speak in the public campfire chat.' };
-    }
-    if (room.phase === 'NIGHT_PHASE') {
-      return { error: 'The village is asleep—public chat is closed at night.' };
+    if (channel === 'dead') {
+      if (isLivingMediumAtNight) {
+        senderName = `🔮 Ruhçağıran (${sender.nickname})`;
+        senderColor = '#2dd4bf';
+      } else if (isSpiritMessage) {
+        senderName = `👻 Ruh: ${sender.nickname}`;
+      }
+    } else if (channel === 'wolves') {
+      senderColor = '#fb7185';
+    } else if (channel === 'siblings') {
+      senderColor = '#818cf8';
+    } else if (channel === 'lovers') {
+      senderColor = '#f472b6';
     }
 
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
       senderId: sender.id,
-      senderName: sender.nickname,
-      senderColor: sender.color,
-      channel: 'PUBLIC',
+      senderName,
+      senderColor,
+      channel,
+      channelBadge: CHANNEL_BADGES[channel],
       content: trimmed,
       timestamp: Date.now(),
+      isSpiritMessage,
     };
+
     room.messages.push(msg);
     this.deliverChatMessage(room, msg);
     return {};
@@ -861,54 +830,9 @@ export class RoomManager {
     for (const recipient of room.players) {
       if (!recipient.socketId || !recipient.isConnected) continue;
 
-      if (msg.channel === 'PUBLIC' || msg.channel === 'SYSTEM') {
-        this.io.to(recipient.socketId).emit('chat:message', msg);
-        continue;
-      }
-
-      if (msg.channel === 'GHOST') {
-        const isRecipientMediumAtNight =
-          recipient.isAlive &&
-          recipient.role === 'MEDIUM' &&
-          !room.villagePowersLost &&
-          room.phase === 'NIGHT_PHASE';
-        if (!recipient.isAlive || isRecipientMediumAtNight || room.phase === 'GAME_OVER') {
-          this.io.to(recipient.socketId).emit('chat:message', msg);
-        }
-        continue;
-      }
-
-      if (msg.channel === 'SISTERS') {
-        if (
-          (recipient.isAlive && recipient.role === 'SISTERS') ||
-          !recipient.isAlive ||
-          room.phase === 'GAME_OVER'
-        ) {
-          this.io.to(recipient.socketId).emit('chat:message', msg);
-        }
-        continue;
-      }
-
-      if (msg.channel === 'WOLF') {
-        if (recipient.isAlive && isWolfPackRole(recipient.role)) {
-          this.io.to(recipient.socketId).emit('chat:message', msg);
-        } else if (
-          recipient.isAlive &&
-          recipient.role === 'LITTLE_GIRL' &&
-          recipient.isPeeking
-        ) {
-          const alias = room.wolfAliasMap[msg.senderId] ?? 'Wolf 1';
-          const anonymizedMsg: ChatMessage = {
-            ...msg,
-            senderId: 'ANONYMOUS_WOLF',
-            senderName: alias,
-            senderColor: '#dc2626',
-            isAnonymized: true,
-          };
-          this.io.to(recipient.socketId).emit('chat:message', anonymizedMsg);
-        } else if (!recipient.isAlive || room.phase === 'GAME_OVER') {
-          this.io.to(recipient.socketId).emit('chat:message', msg);
-        }
+      const formatted = formatMessageForRecipient(room, recipient, msg);
+      if (formatted) {
+        this.io.to(recipient.socketId).emit('chat:message', formatted);
       }
     }
   }

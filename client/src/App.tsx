@@ -16,6 +16,7 @@ import {
 import {
   ActiveNightSubMode,
   AVATAR_OPTIONS,
+  ChatChannel,
   ChatMessage,
   COLOR_OPTIONS,
   NightActionPayload,
@@ -255,9 +256,14 @@ export const App: React.FC = () => {
 
   const handleSendMessage = (
     content: string,
-    channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS'
+    channel: Exclude<ChatChannel, 'system'>
   ) => {
-    socketRef.current?.emit('chat:send', { content, channel });
+    socketRef.current?.emit('chat:send', {
+      roomId: room?.roomCode,
+      content,
+      text: content,
+      channel,
+    });
   };
 
   const handleTypingChange = (isTyping: boolean) => {

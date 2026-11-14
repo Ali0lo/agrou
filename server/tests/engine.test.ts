@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
+  canReadChannel,
+  canWriteToChannel,
+  formatMessageForRecipient,
+} from '../src/engine/ChatAuthorization.js';
+import {
   createInitialRoomState,
   createPlayerState,
   GameEngine,
 } from '../src/engine/GameEngine.js';
 import { sanitizeStateForPlayer } from '../src/engine/StateSanitizer.js';
 import { WinConditionChecker } from '../src/engine/WinConditionChecker.js';
-import { RoleType, RoomState } from '../src/types/game.js';
+import { ChatMessage, RoleType, RoomState } from '../src/types/game.js';
 
 function createTestRoomWithRoles(roles: RoleType[]): RoomState {
   const room = createInitialRoomState('TEST1');
@@ -671,5 +676,101 @@ describe('Campfire Wolves - revealDeadRoles & 22 Classic Agrou Roles', () => {
     const fox = room.players.find((p) => p.id === 'p3')!;
     expect(fox.lastFoxSniff?.hasWolf).toBe(false);
     expect(fox.foxPowerLost).toBe(true);
+  });
+
+  it('enforces server-authoritative access control for all 5 inner chat channels (public, wolves, siblings, lovers, dead)', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF',    // p1
+      'LITTLE_GIRL', // p2
+      'SISTERS',     // p3
+      'SISTERS',     // p4
+      'CUPID',       // p5
+      'MEDIUM',      // p6
+      'VILLAGER',    // p7
+    ]);
+
+    const wolf = room.players.find((p) => p.id === 'p1')!;
+    const littleGirl = room.players.find((p) => p.id === 'p2')!;
+    const sister1 = room.players.find((p) => p.id === 'p3')!;
+    const sister2 = room.players.find((p) => p.id === 'p4')!;
+    const medium = room.players.find((p) => p.id === 'p6')!;
+    const villager = room.players.find((p) => p.id === 'p7')!;
+
+    // Link wolf (p1) and villager (p7) as Lovers via Cupid (p5)
+    GameEngine.submitNightAction(room, 'p5', {
+      actionType: 'CUPID_LINK',
+      targetId: 'p1',
+      secondTargetId: 'p7',
+    });
+
+    // 1. PUBLIC channel: locked during NIGHT_PHASE, writable by alive players during Day
+    expect(canWriteToChannel(room, villager, 'public').allowed).toBe(false);
+    expect(canReadChannel(room, villager, 'public')).toBe(true);
+
+    // 2. WOLVES channel: writable by alive Werewolf at night; blocked for Villager
+    expect(canWriteToChannel(room, wolf, 'wolves').allowed).toBe(true);
+    expect(canWriteToChannel(room, villager, 'wolves').allowed).toBe(false);
+    expect(canReadChannel(room, villager, 'wolves')).toBe(false);
+
+    // Little Girl peeking at night gets read-only access with sender anonymized as "Canavar ???"
+    littleGirl.isPeeking = true;
+    expect(canReadChannel(room, littleGirl, 'wolves')).toBe(true);
+    expect(canWriteToChannel(room, littleGirl, 'wolves').allowed).toBe(false);
+
+    const wolfMsg: ChatMessage = {
+      id: 'm-wolf-1',
+      senderId: wolf.id,
+      senderName: wolf.nickname,
+      senderColor: '#fb7185',
+      channel: 'wolves',
+      channelBadge: '🐺 Canavarlar',
+      content: 'Bu gecə kimi yeyirik?',
+      timestamp: Date.now(),
+    };
+
+    const forWolf = formatMessageForRecipient(room, wolf, wolfMsg);
+    expect(forWolf?.senderName).toBe(wolf.nickname);
+    expect(forWolf?.isAnonymized).toBeUndefined();
+
+    const forLittleGirl = formatMessageForRecipient(room, littleGirl, wolfMsg);
+    expect(forLittleGirl).not.toBeNull();
+    expect(forLittleGirl?.senderName).toBe('Canavar ???');
+    expect(forLittleGirl?.senderId).toBe('ANONYMOUS_WOLF');
+    expect(forLittleGirl?.isAnonymized).toBe(true);
+
+    const forVillager = formatMessageForRecipient(room, villager, wolfMsg);
+    expect(forVillager).toBeNull();
+
+    // 3. SIBLINGS channel: accessible Day & Night only to alive SISTERS
+    expect(canWriteToChannel(room, sister1, 'siblings').allowed).toBe(true);
+    expect(canReadChannel(room, sister2, 'siblings')).toBe(true);
+    expect(canReadChannel(room, villager, 'siblings')).toBe(false);
+    expect(canWriteToChannel(room, wolf, 'siblings').allowed).toBe(false);
+
+    // 4. LOVERS channel: accessible Day & Night only to the two alive linked Lovers (p1 & p7)
+    expect(canWriteToChannel(room, wolf, 'lovers').allowed).toBe(true);
+    expect(canWriteToChannel(room, villager, 'lovers').allowed).toBe(true);
+    expect(canReadChannel(room, sister1, 'lovers')).toBe(false);
+
+    // 5. DEAD channel: accessible to dead players anytime, and to alive MEDIUM during NIGHT_PHASE
+    expect(canWriteToChannel(room, medium, 'dead').allowed).toBe(true);
+    expect(canReadChannel(room, medium, 'dead')).toBe(true);
+    expect(canReadChannel(room, villager, 'dead')).toBe(false);
+
+    // Eliminate sister2 and transition to DAY_DISCUSSION
+    sister2.isAlive = false;
+    room.phase = 'DAY_DISCUSSION';
+
+    // Dead player can write to 'dead' but NOT 'public' or 'siblings'
+    expect(canWriteToChannel(room, sister2, 'dead').allowed).toBe(true);
+    expect(canWriteToChannel(room, sister2, 'public').allowed).toBe(false);
+    expect(canWriteToChannel(room, sister2, 'siblings').allowed).toBe(false);
+
+    // During Day, alive Medium loses access to 'dead', and alive players can write to 'public'
+    expect(canReadChannel(room, medium, 'dead')).toBe(false);
+    expect(canWriteToChannel(room, villager, 'public').allowed).toBe(true);
+    // Siblings and Lovers remain active during Day
+    expect(canWriteToChannel(room, sister1, 'siblings').allowed).toBe(true);
+    expect(canWriteToChannel(room, villager, 'lovers').allowed).toBe(true);
   });
 });
