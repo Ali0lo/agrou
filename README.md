@@ -31,7 +31,13 @@ npm install
 ```
 
 ### 3. Start the Development Servers
-Run the backend server and frontend client in two terminal tabs:
+You can launch both the backend and frontend together with a single command:
+
+```bash
+npm run dev
+```
+
+Or run them in two separate terminal tabs:
 
 ```bash
 # Terminal 1 — Start the Socket.io backend server on http://localhost:4000
