@@ -1,19 +1,47 @@
+import { ROLE_CATALOG } from '../constants/roles';
+
+export { ROLE_CATALOG };
+
 export type RoleType =
+  // A. Village Team (12 Roles)
   | 'VILLAGER'
   | 'SEER'
-  | 'WITCH'
   | 'GUARD'
+  | 'WITCH'
   | 'HUNTER'
+  | 'CUPID'
   | 'LITTLE_GIRL'
+  | 'ELDER'
+  | 'CROW'
+  | 'SISTERS'
+  | 'MEDIUM'
+  | 'FOX'
+  // B. Werewolf Team (5 Roles)
   | 'WEREWOLF'
+  | 'BIG_BAD_WOLF'
   | 'BLACK_WOLF'
-  | 'ANGEL'
-  | 'WHITE_WOLF';
+  | 'WOLF_SEER'
+  | 'WHITE_WOLF'
+  // C. Neutral / Solo & Special Roles (5 Roles + ANGEL)
+  | 'THIEF'
+  | 'WILD_CHILD'
+  | 'JESTER'
+  | 'SERIAL_KILLER'
+  | 'MAYOR'
+  | 'ANGEL';
 
 export type VisibleRoleType = RoleType | 'UNKNOWN';
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL';
 export type VisibleFaction = Faction | 'UNKNOWN';
-export type WinningFaction = 'VILLAGE' | 'WEREWOLF' | 'ANGEL' | 'WHITE_WOLF' | 'NONE';
+export type WinningFaction =
+  | 'VILLAGE'
+  | 'WEREWOLF'
+  | 'WHITE_WOLF'
+  | 'JESTER'
+  | 'ANGEL'
+  | 'SERIAL_KILLER'
+  | 'LOVERS'
+  | 'NONE';
 
 export type GamePhase =
   | 'LOBBY'
@@ -39,6 +67,13 @@ export interface RoomConfig {
   timers: PhaseTimers;
   enabledRoles: Record<RoleType, number>;
   allowWebRTC: boolean;
+  revealDeadRoles: boolean;
+}
+
+export interface FoxSniffResult {
+  centerPlayerId: string;
+  checkedPlayerIds: string[];
+  hasWolf: boolean;
 }
 
 export interface SanitizedPlayerState {
@@ -57,6 +92,9 @@ export interface SanitizedPlayerState {
   deathReason: string | null;
   isSpeaking: boolean;
   isTyping: boolean;
+  isMayor: boolean;
+  isCrowCursed: boolean;
+  isLoverWithSelf: boolean;
 }
 
 export interface WitchPotionsState {
@@ -79,13 +117,30 @@ export interface SanitizedSelfSecretState {
   hasSubmittedNightAction: boolean;
   nightActionSummary: string | null;
   wasInfectedToWolf: boolean;
+  elderLivesRemaining: number;
+  foxPowerLost: boolean;
+  lastFoxSniff: FoxSniffResult | null;
+  loverPartnerId: string | null;
+  roleModelId: string | null;
+  thiefExtraRoles: [RoleType, RoleType] | null;
+  canBigBadWolfKill: boolean;
 }
+
+export type DeathCause =
+  | 'WEREWOLVES'
+  | 'BIG_BAD_WOLF'
+  | 'WITCH_POISON'
+  | 'WHITE_WOLF'
+  | 'SERIAL_KILLER'
+  | 'HUNTER_SHOT'
+  | 'HEARTBREAK'
+  | 'EXECUTION';
 
 export interface NightCasualty {
   playerId: string;
   nickname: string;
-  role: RoleType;
-  cause: 'WEREWOLVES' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HUNTER_SHOT' | 'EXECUTION';
+  role: VisibleRoleType;
+  cause: DeathCause;
 }
 
 export interface HunterRevengeState {
@@ -116,6 +171,8 @@ export interface SanitizedRoomState {
   wolfVotes: Record<string, string | null> | null;
   wolfAlertedThisNight: boolean;
   lastNightCasualties: NightCasualty[];
+  crowCursedPlayerId: string | null;
+  villagePowersLost: boolean;
   skipDiscussionVotes: string[];
   dayVotes: Record<string, string | 'SKIP'>;
   lastExecutedPlayer: NightCasualty | null;
@@ -130,7 +187,7 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   senderColor: string;
-  channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SYSTEM';
+  channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS' | 'SYSTEM';
   content: string;
   timestamp: number;
   isAnonymized?: boolean;
@@ -143,16 +200,37 @@ export type NightActionType =
   | 'WITCH_POISON'
   | 'GUARD_PROTECT'
   | 'BLACK_WOLF_INFECT'
-  | 'WHITE_WOLF_KILL';
+  | 'WHITE_WOLF_KILL'
+  | 'BIG_BAD_WOLF_KILL'
+  | 'WOLF_SEER_INSPECT'
+  | 'FOX_SNIFF'
+  | 'MEDIUM_INSPECT'
+  | 'CROW_CURSE'
+  | 'CUPID_LINK'
+  | 'WILD_CHILD_MODEL'
+  | 'THIEF_SWAP'
+  | 'SERIAL_KILLER_KILL';
 
 export interface NightActionPayload {
   actionType: NightActionType;
   targetId?: string | null;
+  secondTargetId?: string | null;
+  choiceIndex?: 0 | 1;
 }
+
+export type ActiveNightSubMode =
+  | 'DEFAULT'
+  | 'WITCH_POISON'
+  | 'WHITE_WOLF_KILL'
+  | 'BIG_BAD_WOLF_KILL'
+  | 'WOLF_SEER_INSPECT'
+  | null;
 
 export interface RoleInfo {
   role: RoleType;
   name: string;
+  nameAz: string;
+  nameEn: string;
   icon: string;
   faction: Faction;
   colorClass: string;
@@ -161,122 +239,19 @@ export interface RoleInfo {
   winCondition: string;
 }
 
-export const ROLE_CATALOG: Record<RoleType, RoleInfo> = {
-  VILLAGER: {
-    role: 'VILLAGER',
-    name: 'Villager',
-    icon: '🌾',
-    faction: 'VILLAGE',
-    colorClass: 'text-emerald-300',
-    badgeBg: 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200',
-    description: 'No special night power. Relies on sharp deduction and daytime voting to root out the Werewolves.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  SEER: {
-    role: 'SEER',
-    name: 'Seer',
-    icon: '🔮',
-    faction: 'VILLAGE',
-    colorClass: 'text-purple-300',
-    badgeBg: 'bg-purple-500/20 border-purple-500/40 text-purple-200',
-    description: 'Each night, selects one player around the campfire to inspect and privately learns their exact role.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  WITCH: {
-    role: 'WITCH',
-    name: 'Witch',
-    icon: '🧪',
-    faction: 'VILLAGE',
-    colorClass: 'text-fuchsia-300',
-    badgeBg: 'bg-fuchsia-500/20 border-fuchsia-500/40 text-fuchsia-200',
-    description: 'Starts with two single-use potions: a Heal Potion to save the Werewolves\' target, and a Poison Potion to eliminate any player at night.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  GUARD: {
-    role: 'GUARD',
-    name: 'Guard',
-    icon: '🛡️',
-    faction: 'VILLAGE',
-    colorClass: 'text-sky-300',
-    badgeBg: 'bg-sky-500/20 border-sky-500/40 text-sky-200',
-    description: 'Each night, selects one player to protect from Werewolf attacks. Cannot protect the same player two nights in a row.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  HUNTER: {
-    role: 'HUNTER',
-    name: 'Hunter',
-    icon: '🏹',
-    faction: 'VILLAGE',
-    colorClass: 'text-amber-300',
-    badgeBg: 'bg-amber-500/20 border-amber-500/40 text-amber-200',
-    description: 'Passive ability: Whenever the Hunter dies (at night or by day vote), they get 15 seconds to shoot and eliminate one living player.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  LITTLE_GIRL: {
-    role: 'LITTLE_GIRL',
-    name: 'Little Girl',
-    icon: '🕯️',
-    faction: 'VILLAGE',
-    colorClass: 'text-teal-300',
-    badgeBg: 'bg-teal-500/20 border-teal-500/40 text-teal-200',
-    description: 'Can toggle "Peek" during the Night Phase to spy on Werewolf chat (anonymized as "Wolf 1", "Wolf 2"), but each second increases exposure risk.',
-    winCondition: 'Win with the Village when all Werewolves and Killing Neutrals are eliminated.',
-  },
-  WEREWOLF: {
-    role: 'WEREWOLF',
-    name: 'Werewolf',
-    icon: '🐺',
-    faction: 'WEREWOLF',
-    colorClass: 'text-rose-400',
-    badgeBg: 'bg-rose-500/20 border-rose-500/40 text-rose-200',
-    description: 'Plots in secret red-tinted Werewolf chat at night and votes with the pack to devour one victim.',
-    winCondition: 'Win with the Werewolf Pack when Werewolves equal or outnumber non-Werewolves.',
-  },
-  BLACK_WOLF: {
-    role: 'BLACK_WOLF',
-    name: 'Black Wolf',
-    icon: '🖤',
-    faction: 'WEREWOLF',
-    colorClass: 'text-red-400',
-    badgeBg: 'bg-red-600/25 border-red-500/50 text-red-200',
-    description: 'Once per game at night, can infect the Werewolves\' victim instead of killing them, secretly converting them into a Werewolf.',
-    winCondition: 'Win with the Werewolf Pack when Werewolves equal or outnumber non-Werewolves.',
-  },
-  ANGEL: {
-    role: 'ANGEL',
-    name: 'Angel',
-    icon: '👼',
-    faction: 'NEUTRAL',
-    colorClass: 'text-yellow-300',
-    badgeBg: 'bg-yellow-500/20 border-yellow-500/40 text-yellow-200',
-    description: 'Wins immediately if voted out by the village on Day 1. If they survive Day 1, they convert into a standard Villager.',
-    winCondition: 'Get executed by the village vote on Day 1.',
-  },
-  WHITE_WOLF: {
-    role: 'WHITE_WOLF',
-    name: 'White Wolf',
-    icon: '🐻‍❄️',
-    faction: 'NEUTRAL',
-    colorClass: 'text-indigo-200',
-    badgeBg: 'bg-indigo-500/25 border-indigo-400/50 text-indigo-100',
-    description: 'Appears as a normal Werewolf to other Wolves. Every second night (Night 2, 4...), may secretly kill one fellow Werewolf.',
-    winCondition: 'Win solo by being the very last player alive around the campfire.',
-  },
-};
-
 export const AVATAR_OPTIONS = [
   '🦊', '🦉', '🐺', '🦌', '🐻', '🐈‍⬛', '🦔', '🐸', '🦅', '🐿️', '🦡', '🌙',
 ];
 
 export const COLOR_OPTIONS = [
-  '#f97316', // Orange
-  '#f59e0b', // Amber
-  '#10b981', // Emerald
-  '#14b8a6', // Teal
-  '#3b82f6', // Blue
-  '#6366f1', // Indigo
-  '#8b5cf6', // Purple
-  '#ec4899', // Pink
-  '#ef4444', // Red
-  '#84cc16', // Lime
+  '#f97316',
+  '#f59e0b',
+  '#10b981',
+  '#14b8a6',
+  '#3b82f6',
+  '#6366f1',
+  '#8b5cf6',
+  '#ec4899',
+  '#ef4444',
+  '#84cc16',
 ];

@@ -8,6 +8,7 @@ import {
   FastForward,
   FlaskConical,
   HeartPulse,
+  Lock,
   RotateCcw,
   Skull,
   Sparkles,
@@ -15,6 +16,7 @@ import {
   Vote,
 } from 'lucide-react';
 import {
+  ActiveNightSubMode,
   NightActionPayload,
   ROLE_CATALOG,
   SanitizedRoomState,
@@ -22,10 +24,8 @@ import {
 
 interface PhaseActionToolbarProps {
   room: SanitizedRoomState;
-  activeNightMode: 'DEFAULT' | 'WITCH_POISON' | 'WHITE_WOLF_KILL' | null;
-  onSetActiveNightMode: (
-    mode: 'DEFAULT' | 'WITCH_POISON' | 'WHITE_WOLF_KILL' | null
-  ) => void;
+  activeNightMode: ActiveNightSubMode;
+  onSetActiveNightMode: (mode: ActiveNightSubMode) => void;
   onSubmitNightAction: (payload: NightActionPayload) => void;
   onToggleLittleGirlPeek: (peeking: boolean) => void;
   onToggleSkipDiscussion: () => void;
@@ -53,6 +53,10 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
     ? room.players.find((p) => p.id === self.currentWolfTargetId)
     : null;
 
+  const loverPartner = self?.loverPartnerId
+    ? room.players.find((p) => p.id === self.loverPartnerId)
+    : null;
+
   // 1. Hunter's Revenge 15s Interrupt Banner
   if (room.hunterRevenge && !room.hunterRevenge.resolved) {
     const hunter = room.players.find(
@@ -68,12 +72,12 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           </div>
           <div>
             <h3 className="text-sm font-black uppercase tracking-wider text-amber-300">
-              🎯 Hunter&apos;s Final Revenge (15s Window)
+              🎯 Ovçunun Son İntiqamı (15s Pəncərə)
             </h3>
             <p className="text-xs text-slate-200">
               {isMeHunter
-                ? 'Click any living player around the campfire NOW to fire your parting shot!'
-                : `${hunter?.nickname ?? 'The Hunter'} is aiming their rifle before becoming a ghost...`}
+                ? 'Son nəfəsinizdə vurmaq üçün tonqal ətrafındakı canlı oyunçulardan birinə klikləyin!'
+                : `${hunter?.nickname ?? 'Ovçu'} son atəşini hədəfləyir...`}
             </p>
           </div>
         </div>
@@ -81,7 +85,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
     );
   }
 
-  // 2. GAME OVER Summary & MVP Awards
+  // 2. GAME OVER Summary & MVP Awards (Always reveals all roles)
   if (room.phase === 'GAME_OVER') {
     return (
       <div className="p-5 rounded-2xl bg-gradient-to-b from-slate-900/95 via-slate-950 to-slate-900 border-2 border-amber-500/50 shadow-2xl space-y-5">
@@ -92,7 +96,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
             </div>
             <div>
               <span className="text-xs font-extrabold uppercase tracking-widest text-amber-400">
-                Match Complete — {room.winner} Victory
+                Oyun Bitdi — {room.winner} Qələbəsi
               </span>
               <h2 className="text-lg sm:text-xl font-black text-white">
                 {room.winReason}
@@ -106,7 +110,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
               onClick={onPlayAgain}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs uppercase tracking-wider flex items-center gap-2 shadow-lg transition"
             >
-              <RotateCcw className="w-4 h-4" /> Play Again (Same Lobby)
+              <RotateCcw className="w-4 h-4" /> Yenidən Oyna (Eyni Otaq)
             </button>
           )}
         </div>
@@ -115,8 +119,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
         {room.mvpAwards.length > 0 && (
           <div>
             <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 mb-2.5 flex items-center gap-1.5">
-              <Award className="w-4 h-4 text-amber-400" /> Campfire Honours &
-              MVP Stats
+              <Award className="w-4 h-4 text-amber-400" /> Tonqal MVP Mükafatları
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {room.mvpAwards.map((mvp) => {
@@ -133,7 +136,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${roleMeta.badgeBg}`}
                       >
-                        {roleMeta.icon} {roleMeta.name}
+                        {roleMeta.icon} {roleMeta.nameAz}
                       </span>
                     </div>
                     <p className="text-sm font-black text-white">
@@ -154,16 +157,27 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
   if (room.phase === 'NIGHT_PHASE' && self) {
     return (
       <div className="p-3.5 rounded-2xl bg-indigo-950/60 border border-indigo-500/30 backdrop-blur-md space-y-3 shadow-xl">
+        {/* Lovers Bond Notification */}
+        {loverPartner && (
+          <div className="px-3 py-1.5 rounded-xl bg-pink-500/15 border border-pink-400/40 text-pink-200 text-xs font-semibold flex items-center gap-2">
+            <span>💘</span>
+            <span>
+              Aşiq ortağınız: <strong>{loverPartner.nickname}</strong>. Biri ölərsə, digəri də dərhal ölür!
+            </span>
+          </div>
+        )}
+
         {/* Alert Banner for Wolves when Little Girl is detected spying */}
         {room.wolfAlertedThisNight &&
           (self.role === 'WEREWOLF' ||
+            self.role === 'BIG_BAD_WOLF' ||
             self.role === 'BLACK_WOLF' ||
+            self.role === 'WOLF_SEER' ||
             self.role === 'WHITE_WOLF') && (
             <div className="px-3 py-2 rounded-xl bg-amber-500/20 border border-amber-400/50 text-amber-200 text-xs font-semibold flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
               <span>
-                👀 Rustling in the bushes! Someone (Little Girl) has been
-                peeking at the Werewolf pack tonight!
+                👀 Kolluqda xışıltı var! Kiçik Qız bu gecə sürünü gizlicə izləyir!
               </span>
             </div>
           )}
@@ -171,22 +185,58 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
         {!isAlive ? (
           <div className="text-xs text-slate-400 flex items-center justify-between">
             <span>
-              👻 Spectator Mode — You can see all roles and watch the night
-              unfold.
+              👻 İzləyici Rejimi (Spectator) — Bütün rolları görə və Ruh Söhbətində (Ghost Chat) danışa bilərsiniz.
             </span>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* Role-Specific Night Controls */}
+            {/* THIEF (Oğru) Night 1 Card Swap */}
+            {self.role === 'THIEF' &&
+              room.nightNumber === 1 &&
+              self.thiefExtraRoles && (
+                <div className="w-full flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-slate-200">
+                    <span className="font-bold text-amber-300">
+                      🎭 Oğru (Thief):
+                    </span>{' '}
+                    Mərkəzdəki 2 əlavə kartdan birini seçərək rolunuzu dəyişin:
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {self.thiefExtraRoles.map((cardRole, idx) => {
+                      const meta = ROLE_CATALOG[cardRole];
+                      return (
+                        <button
+                          key={`${cardRole}-${idx}`}
+                          type="button"
+                          onClick={() =>
+                            onSubmitNightAction({
+                              actionType: 'THIEF_SWAP',
+                              choiceIndex: idx as 0 | 1,
+                            })
+                          }
+                          className={`px-3 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition hover:scale-105 ${meta.badgeBg}`}
+                        >
+                          <span>{meta.icon}</span>
+                          <span>
+                            Kart #{idx + 1}: {meta.nameAz} ({meta.nameEn})
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+            {/* WITCH (Cadugər) */}
             {self.role === 'WITCH' && self.witchPotions && (
               <div className="w-full flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-200">
                   <span className="font-bold text-fuchsia-300">
-                    🧪 Witch&apos;s Apothecary:
+                    🧪 Cadugər (Witch):
                   </span>{' '}
                   {wolfTargetPlayer ? (
                     <span>
-                      Werewolves are attacking{' '}
+                      Canavarların hədəfi:{' '}
                       <strong className="text-rose-400">
                         {wolfTargetPlayer.nickname}
                       </strong>
@@ -194,7 +244,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                     </span>
                   ) : (
                     <span className="text-slate-400">
-                      Waiting for Werewolves to lock a victim...
+                      Canavarların hədəf seçməsi gözlənilir...
                     </span>
                   )}
                 </div>
@@ -213,12 +263,12 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                     <HeartPulse className="w-3.5 h-3.5" />
                     <span>
                       {self.witchPotions.healAvailable
-                        ? `Heal Potion (${
+                        ? `Həyat İksiri (${
                             wolfTargetPlayer
-                              ? `Save ${wolfTargetPlayer.nickname}`
-                              : 'No Victim'
+                              ? `Xilas et: ${wolfTargetPlayer.nickname}`
+                              : 'Hədəf yoxdur'
                           })`
-                        : 'Heal Used'}
+                        : 'Həyat İksiri İşlənib'}
                     </span>
                   </button>
 
@@ -242,25 +292,26 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                     <span>
                       {self.witchPotions.poisonAvailable
                         ? activeNightMode === 'WITCH_POISON'
-                          ? 'Click a Seat to Poison (Cancel)'
-                          : 'Use Poison Potion'
-                        : 'Poison Used'}
+                          ? 'Zəhərləmək üçün oyunçuya kliklə (Ləğv et)'
+                          : 'Ölüm İksiri (Zəhərlə)'
+                        : 'Ölüm İksiri İşlənib'}
                     </span>
                   </button>
                 </div>
               </div>
             )}
 
+            {/* BLACK WOLF (Yoluxucu Ata Canavar) */}
             {self.role === 'BLACK_WOLF' && (
               <div className="w-full flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-200">
                   <span className="font-bold text-red-400">
-                    🖤 Black Wolf Pack & Infection:
+                    🖤 Yoluxucu Ata Canavar:
                   </span>{' '}
-                  Click a player to vote with the pack.{' '}
+                  Sürü ilə səs verin və ya hədəfi Canavara çevirin.{' '}
                   {wolfTargetPlayer && (
                     <span>
-                      Current pack victim:{' '}
+                      Sürü hədəfi:{' '}
                       <strong className="text-amber-300">
                         {wolfTargetPlayer.nickname}
                       </strong>
@@ -282,24 +333,100 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                   <span>
                     {self.blackWolfInfectionAvailable
                       ? self.nightActionSummary
-                        ? 'Cancel Infection'
-                        : `Infect ${
-                            wolfTargetPlayer?.nickname ?? 'Victim'
-                          } (1x per game)`
-                      : 'Infection Already Used'}
+                        ? 'Yoluxdurmanı Ləğv Et'
+                        : `Yoluxdur: ${
+                            wolfTargetPlayer?.nickname ?? 'Hədəf'
+                          } (Oyun boyu 1x)`
+                      : 'Yoluxdurma İşlənib'}
                   </span>
                 </button>
               </div>
             )}
 
+            {/* BIG BAD WOLF (Böyük Qara Canavar) */}
+            {self.role === 'BIG_BAD_WOLF' && (
+              <div className="w-full flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-200">
+                  <span className="font-bold text-red-400">
+                    🐾 Böyük Qara Canavar:
+                  </span>{' '}
+                  Sürü səsverməsindən əlavə ikinci qurbanı seçə bilərsiniz (ilk canavar ölənə qədər).
+                </div>
+
+                <button
+                  type="button"
+                  disabled={!self.canBigBadWolfKill}
+                  onClick={() =>
+                    onSetActiveNightMode(
+                      activeNightMode === 'BIG_BAD_WOLF_KILL'
+                        ? 'DEFAULT'
+                        : 'BIG_BAD_WOLF_KILL'
+                    )
+                  }
+                  className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${
+                    activeNightMode === 'BIG_BAD_WOLF_KILL'
+                      ? 'bg-red-500 text-white border-red-200'
+                      : 'bg-red-600/25 hover:bg-red-600/40 border-red-400/40 text-red-200 disabled:opacity-40'
+                  }`}
+                >
+                  <Skull className="w-3.5 h-3.5" />
+                  <span>
+                    {self.canBigBadWolfKill
+                      ? activeNightMode === 'BIG_BAD_WOLF_KILL'
+                        ? '2-ci Qurbana Kliklə (Sürü Səsinə Qayıt)'
+                        : '2-ci Qurbanı Seç (Əlavə Hücum)'
+                      : 'Canavar öldüyü üçün əlavə hücum deaktivdir'}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* WOLF SEER (Görücü Canavar) */}
+            {self.role === 'WOLF_SEER' && (
+              <div className="w-full flex flex-wrap items-center justify-between gap-3">
+                <div className="text-xs text-slate-200">
+                  <span className="font-bold text-rose-300">
+                    👁️‍🗨️ Görücü Canavar:
+                  </span>{' '}
+                  Həm sürü ilə səs verə, həm də bir oyunçunun rolunu yoxlaya bilərsiniz.
+                </div>
+
+                <button
+                  type="button"
+                  disabled={self.hasSubmittedNightAction}
+                  onClick={() =>
+                    onSetActiveNightMode(
+                      activeNightMode === 'WOLF_SEER_INSPECT'
+                        ? 'DEFAULT'
+                        : 'WOLF_SEER_INSPECT'
+                    )
+                  }
+                  className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition ${
+                    activeNightMode === 'WOLF_SEER_INSPECT'
+                      ? 'bg-purple-500 text-white border-purple-200'
+                      : 'bg-purple-600/25 hover:bg-purple-600/40 border-purple-400/40 text-purple-200 disabled:opacity-40'
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" />
+                  <span>
+                    {self.hasSubmittedNightAction
+                      ? 'Bu gecə yoxlama aparılıb'
+                      : activeNightMode === 'WOLF_SEER_INSPECT'
+                      ? 'Yoxlamaq üçün oyunçuya kliklə (Ləğv et)'
+                      : 'Rol Yoxla (Inspect Mode)'}
+                  </span>
+                </button>
+              </div>
+            )}
+
+            {/* WHITE WOLF (Ağ Canavar) */}
             {self.role === 'WHITE_WOLF' && (
               <div className="w-full flex flex-wrap items-center justify-between gap-3">
                 <div className="text-xs text-slate-200">
                   <span className="font-bold text-indigo-300">
-                    🐻‍❄️ White Wolf:
+                    🐻‍❄️ Ağ Canavar:
                   </span>{' '}
-                  Vote with the pack, and on even nights you may secretly kill a
-                  fellow Werewolf.
+                  Sürü ilə səs verin; cüt gecələrdə isə digər bir Canavarı öldürə bilərsiniz.
                 </div>
 
                 <button
@@ -322,14 +449,15 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                   <span>
                     {room.nightNumber % 2 === 0
                       ? activeNightMode === 'WHITE_WOLF_KILL'
-                        ? 'Click a Fellow Wolf to Betray (Cancel)'
-                        : 'Betray Fellow Wolf (Night ' + room.nightNumber + ')'
-                      : 'Solo Betrayal Unlocks Next Night (Even Nights)'}
+                        ? 'Canavara Kliklə (Ləğv et)'
+                        : `Canavara Xəyanət Et (Gecə ${room.nightNumber})`
+                      : 'Tək Hücum Cüt Gecələrdə Açılır'}
                   </span>
                 </button>
               </div>
             )}
 
+            {/* LITTLE GIRL (Kiçik Qız) */}
             {self.role === 'LITTLE_GIRL' && (
               <div className="w-full flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -344,25 +472,24 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                   >
                     {self.isPeeking ? (
                       <>
-                        <EyeOff className="w-3.5 h-3.5" /> Stop Peeking
+                        <EyeOff className="w-3.5 h-3.5" /> İzləməni Dayandır
                       </>
                     ) : (
                       <>
-                        <Eye className="w-3.5 h-3.5" /> Peek at Werewolf Chat
+                        <Eye className="w-3.5 h-3.5" /> Canavar Söhbətinə Bax (Peek)
                       </>
                     )}
                   </button>
                   <span className="text-xs text-slate-300">
                     {self.isPeeking
-                      ? 'Spying on the Wolf Pack tab! Watch your exposure gauge...'
-                      : 'Toggle Peek to read anonymized Wolf messages.'}
+                      ? 'Canavar söhbətini gizlicə oxuyursunuz!'
+                      : 'Canavarların yazışmasını anonim oxumaq üçün klikləyin.'}
                   </span>
                 </div>
 
-                {/* Little Girl Exposure Warning Bar */}
                 <div className="flex items-center gap-2 min-w-[180px]">
                   <span className="text-[11px] font-bold text-amber-300">
-                    Exposure: {self.exposureLevel}%
+                    İfşa Riski: {self.exposureLevel}%
                   </span>
                   <div className="flex-1 h-2 rounded-full bg-slate-800 overflow-hidden">
                     <div
@@ -380,65 +507,95 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
               </div>
             )}
 
-            {(self.role === 'SEER' ||
-              self.role === 'GUARD' ||
-              self.role === 'WEREWOLF' ||
-              self.role === 'VILLAGER' ||
-              self.role === 'HUNTER' ||
-              self.role === 'ANGEL') && (
-              <div className="text-xs text-indigo-200 flex items-center gap-2">
-                <span>{ROLE_CATALOG[self.role].icon}</span>
-                <span>
-                  {self.role === 'SEER'
-                    ? 'Click a player seat around the campfire to inspect their true role.'
-                    : self.role === 'GUARD'
-                    ? 'Click a player seat around the campfire to protect them from Werewolves tonight.'
-                    : self.role === 'WEREWOLF'
-                    ? 'Coordinate in the Wolf Pack chat and click a villager seat to vote on tonight\'s victim.'
-                    : 'Rest quietly by the sleeping fire while special roles act in the shadows...'}
-                </span>
-              </div>
-            )}
+            {/* Other Roles Night Instructions */}
+            {self.role !== 'WITCH' &&
+              self.role !== 'BLACK_WOLF' &&
+              self.role !== 'BIG_BAD_WOLF' &&
+              self.role !== 'WOLF_SEER' &&
+              self.role !== 'WHITE_WOLF' &&
+              self.role !== 'LITTLE_GIRL' &&
+              !(self.role === 'THIEF' && room.nightNumber === 1 && self.thiefExtraRoles) && (
+                <div className="text-xs text-indigo-200 flex items-center gap-2">
+                  <span>{ROLE_CATALOG[self.role].icon}</span>
+                  <span>
+                    {self.role === 'SEER'
+                      ? '🔮 Kahin: Rolunu öyrənmək üçün tonqal ətrafındakı bir oyunçuya klikləyin.'
+                      : self.role === 'GUARD'
+                      ? '🛡️ Mühafizəçi: Bu gecə canavarlardan qorumaq üçün bir oyunçuya klikləyin.'
+                      : self.role === 'FOX'
+                      ? self.foxPowerLost
+                        ? '🦊 Tülkü: Qoxu qabiliyyətinizi itirmisiniz.'
+                        : '🦊 Tülkü: Bir oyunçuya klikləyərək onu və sağ/sol qonşularını (3 nəfəri) iyləyin.'
+                      : self.role === 'MEDIUM'
+                      ? '👻 Ruhçağıran: Ruh Söhbəti (Ghost Chat) tabında ölülərlə danışın və ya ölən oyunçunun məzarına klikləyib rolunu öyrənin.'
+                      : self.role === 'CROW'
+                      ? '🐦‍⬛ Qarğa: Sabahkı səsvermədə +2 avtomatik səs vermək üçün bir oyunçunu lənətləyin.'
+                      : self.role === 'CUPID' && room.nightNumber === 1
+                      ? '💘 Kupidon: Aşiqlər (Lovers) olaraq birləşdirmək üçün növbə ilə 2 oyunçuya klikləyin.'
+                      : self.role === 'WILD_CHILD' && room.nightNumber === 1
+                      ? '🐾 Vəhşi Uşaq: Özünüzə Kumir (Role Model) seçmək üçün bir oyunçuya klikləyin.'
+                      : self.role === 'SERIAL_KILLER'
+                      ? '🗡️ Zərbəçi (Qatil): Bu gecə aradan götürmək üçün bir hədəfə klikləyin.'
+                      : self.role === 'WEREWOLF'
+                      ? '🐺 Canavar: Sürü söhbətində məsləhətləşin və qurbana səs verin.'
+                      : self.role === 'SISTERS'
+                      ? '🤝 Qardaşlar: Qardaş Söhbəti tabında bir-birinizlə gizlicə danışa bilərsiniz.'
+                      : '🌙 Gecə düşüb... Xüsusi rollar öz həmlələrini edərkən tonqal ətrafında gözləyin.'}
+                  </span>
+                </div>
+              )}
           </div>
         )}
       </div>
     );
   }
 
-  // 4. DAWN SUMMARY Banner
+  // 4. DAWN SUMMARY Banner (Respects revealDeadRoles!)
   if (room.phase === 'DAWN_SUMMARY') {
     return (
       <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/40 backdrop-blur-md space-y-2 shadow-xl">
         {self?.wasInfectedToWolf && (
           <div className="px-3 py-2 rounded-xl bg-red-600/30 border border-red-400/60 text-red-100 text-xs font-bold">
-            🐺 You were infected by the Black Wolf in the night! You are now a
-            member of the Werewolf Pack!
+            🐺 Yoluxucu Ata Canavar sizi gecə yoluxdurdu! Artıq Canavar Sürüsünün üzvüsünüz!
           </div>
         )}
         {room.lastNightCasualties.length === 0 ? (
           <p className="text-sm font-bold text-amber-200">
-            🌅 The sun rises over a peaceful campfire—nobody died last night!
+            🌅 Səhər açıldı — gecə sakit keçdi, heç kim ölmədi!
           </p>
         ) : (
-          <div className="space-y-1">
+          <div className="space-y-1.5">
             <p className="text-xs font-bold uppercase tracking-wider text-rose-300">
-              🌅 Dawn Casualties Revealed
+              🌅 Gecənin Qurbanları
             </p>
             <div className="flex flex-wrap gap-2">
-              {room.lastNightCasualties.map((c) => (
-                <div
-                  key={c.playerId}
-                  className="px-3 py-1.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-100 flex items-center gap-2"
-                >
-                  <Skull className="w-3.5 h-3.5 text-rose-400" />
-                  <span>
-                    <strong>{c.nickname}</strong> was eliminated — Role:{' '}
-                    <strong className="text-amber-300">
-                      {ROLE_CATALOG[c.role].icon} {ROLE_CATALOG[c.role].name}
-                    </strong>
-                  </span>
-                </div>
-              ))}
+              {room.lastNightCasualties.map((c) => {
+                const roleMeta =
+                  c.role !== 'UNKNOWN' ? ROLE_CATALOG[c.role] : null;
+                return (
+                  <div
+                    key={c.playerId}
+                    className="px-3 py-1.5 rounded-xl bg-rose-950/70 border border-rose-500/40 text-xs text-rose-100 flex items-center gap-2"
+                  >
+                    <Skull className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+                    {roleMeta ? (
+                      <span>
+                        <strong>{c.nickname}</strong> öldürüldü — Rolu:{' '}
+                        <strong className="text-amber-300">
+                          {roleMeta.icon} {roleMeta.nameAz} ({roleMeta.nameEn})
+                        </strong>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1">
+                        <strong>{c.nickname}</strong> öldürüldü —{' '}
+                        <strong className="text-slate-300 flex items-center gap-1">
+                          Rolu gizlidir <Lock className="w-3 h-3 inline" />
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -456,9 +613,9 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
       <div className="p-3.5 rounded-2xl bg-slate-900/80 border border-amber-500/30 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 shadow-xl">
         <div className="text-xs text-slate-200">
           <span className="font-bold text-amber-300">
-            ☀️ Day {room.dayNumber} Discussion:
+            ☀️ Gün {room.dayNumber} Müzakirəsi:
           </span>{' '}
-          Debate who is lying around the campfire before the tribunal vote begins.
+          Səsvermə başlamazdan əvvəl kimin Canavar olduğunu müzakirə edin.
         </div>
 
         {isAlive && (
@@ -473,8 +630,8 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           >
             <FastForward className="w-3.5 h-3.5" />
             <span>
-              End Discussion Early ({room.skipDiscussionVotes.length}/
-              {skipThreshold} needed)
+              Müzakirəni Bitir ({room.skipDiscussionVotes.length}/{skipThreshold}{' '}
+              tələb olunur)
             </span>
           </button>
         )}
@@ -494,50 +651,59 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
         <div className="text-xs text-slate-200 flex items-center gap-2">
           <Vote className="w-4 h-4 text-rose-400" />
           <span>
-            <strong>Day {room.dayNumber} Tribunal Vote:</strong> Click a suspect
-            around the campfire to cast your vote. Ties result in no elimination!
+            <strong>Gün {room.dayNumber} Səsverməsi:</strong> Şübhəli oyunçuya
+            klikləyərək səs verin (Şerifin səsi 2x sayılır).
           </span>
         </div>
 
         {isAlive && (
           <button
             type="button"
-            onClick={() =>
-              onCastDayVote(myVote === 'SKIP' ? null : 'SKIP')
-            }
+            onClick={() => onCastDayVote(myVote === 'SKIP' ? null : 'SKIP')}
             className={`px-3.5 py-1.5 rounded-xl border text-xs font-bold transition ${
               myVote === 'SKIP'
                 ? 'bg-amber-400 text-slate-950 border-amber-200 shadow'
                 : 'bg-slate-800 hover:bg-slate-700 border-slate-600 text-slate-200'
             }`}
           >
-            Skip Vote ({skipVotesCount})
+            Səsi Keç / Skip ({skipVotesCount})
           </button>
         )}
       </div>
     );
   }
 
-  // 7. EXECUTION REVEAL Banner
+  // 7. EXECUTION REVEAL Banner (Respects revealDeadRoles!)
   if (room.phase === 'EXECUTION_REVEAL') {
+    const executed = room.lastExecutedPlayer;
+    const roleMeta =
+      executed && executed.role !== 'UNKNOWN'
+        ? ROLE_CATALOG[executed.role]
+        : null;
+
     return (
       <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/50 backdrop-blur-md shadow-xl">
-        {room.lastExecutedPlayer ? (
+        {executed ? (
           <div className="flex items-center gap-3 text-xs sm:text-sm text-rose-100">
             <Skull className="w-5 h-5 text-rose-400 shrink-0" />
-            <span>
-              ⚖️ The village executed{' '}
-              <strong>{room.lastExecutedPlayer.nickname}</strong>! Their role was{' '}
-              <strong className="text-amber-300">
-                {ROLE_CATALOG[room.lastExecutedPlayer.role].icon}{' '}
-                {ROLE_CATALOG[room.lastExecutedPlayer.role].name}
-              </strong>
-              .
-            </span>
+            {roleMeta ? (
+              <span>
+                ⚖️ <strong>{executed.nickname}</strong> kənd səsverməsi ilə edam
+                edildi — Rolu:{' '}
+                <strong className="text-amber-300">
+                  {roleMeta.icon} {roleMeta.nameAz} ({roleMeta.nameEn})
+                </strong>
+              </span>
+            ) : (
+              <span>
+                ⚖️ <strong>{executed.nickname}</strong> kənd səsverməsi ilə edam
+                edildi — <strong>Rolu gizlidir 🔒</strong>
+              </span>
+            )}
           </div>
         ) : (
           <p className="text-sm font-bold text-amber-200">
-            ⚖️ The vote ended in a tie or skip — no one was executed today!
+            ⚖️ Səsvermə bərabərliklə bitdi — bu gün heç kim edam edilmədi!
           </p>
         )}
       </div>

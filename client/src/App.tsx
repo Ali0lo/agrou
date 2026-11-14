@@ -14,6 +14,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import {
+  ActiveNightSubMode,
   AVATAR_OPTIONS,
   ChatMessage,
   COLOR_OPTIONS,
@@ -57,9 +58,8 @@ export const App: React.FC = () => {
   const [isRoleDrawerOpen, setIsRoleDrawerOpen] = useState(false);
   const [isMuted, setIsMuted] = useState(soundEngine.isMuted());
   const [secondsRemaining, setSecondsRemaining] = useState<number>(0);
-  const [activeNightMode, setActiveNightMode] = useState<
-    'DEFAULT' | 'WITCH_POISON' | 'WHITE_WOLF_KILL' | null
-  >('DEFAULT');
+  const [activeNightMode, setActiveNightMode] =
+    useState<ActiveNightSubMode>('DEFAULT');
 
   // Establish Socket.io connection & handle automatic sessionStorage reconnection
   useEffect(() => {
@@ -199,6 +199,7 @@ export const App: React.FC = () => {
   const handleUpdateConfig = (update: {
     timers?: Partial<PhaseTimers>;
     enabledRoles?: Partial<Record<RoleType, number>>;
+    revealDeadRoles?: boolean;
   }) => {
     socketRef.current?.emit('lobby:updateConfig', update);
   };
@@ -254,7 +255,7 @@ export const App: React.FC = () => {
 
   const handleSendMessage = (
     content: string,
-    channel: 'PUBLIC' | 'WOLF' | 'GHOST'
+    channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS'
   ) => {
     socketRef.current?.emit('chat:send', { content, channel });
   };

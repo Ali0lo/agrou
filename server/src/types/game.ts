@@ -1,21 +1,45 @@
 export type RoleType =
+  // A. Village Team (12 Roles)
   | 'VILLAGER'
   | 'SEER'
-  | 'WITCH'
   | 'GUARD'
+  | 'WITCH'
   | 'HUNTER'
+  | 'CUPID'
   | 'LITTLE_GIRL'
+  | 'ELDER'
+  | 'CROW'
+  | 'SISTERS'
+  | 'MEDIUM'
+  | 'FOX'
+  // B. Werewolf Team (5 Roles)
   | 'WEREWOLF'
+  | 'BIG_BAD_WOLF'
   | 'BLACK_WOLF'
-  | 'ANGEL'
-  | 'WHITE_WOLF';
+  | 'WOLF_SEER'
+  | 'WHITE_WOLF'
+  // C. Neutral / Solo & Special Roles (5 Roles + ANGEL alias)
+  | 'THIEF'
+  | 'WILD_CHILD'
+  | 'JESTER'
+  | 'SERIAL_KILLER'
+  | 'MAYOR'
+  | 'ANGEL';
 
 export type VisibleRoleType = RoleType | 'UNKNOWN';
 
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL';
 export type VisibleFaction = Faction | 'UNKNOWN';
 
-export type WinningFaction = 'VILLAGE' | 'WEREWOLF' | 'ANGEL' | 'WHITE_WOLF' | 'NONE';
+export type WinningFaction =
+  | 'VILLAGE'
+  | 'WEREWOLF'
+  | 'WHITE_WOLF'
+  | 'JESTER'
+  | 'ANGEL'
+  | 'SERIAL_KILLER'
+  | 'LOVERS'
+  | 'NONE';
 
 export type GamePhase =
   | 'LOBBY'
@@ -45,6 +69,12 @@ export interface PlayerStats {
   killsTriggered: number;
 }
 
+export interface FoxSniffResult {
+  centerPlayerId: string;
+  checkedPlayerIds: string[];
+  hasWolf: boolean;
+}
+
 export interface PlayerState {
   id: string;
   socketId: string | null;
@@ -67,10 +97,16 @@ export interface PlayerState {
   isSpeaking: boolean;
   isTyping: boolean;
   // Role-specific per-player state
-  knownRoles: Record<string, RoleType>; // Used by Seer
-  lastProtectedPlayerId: string | null; // Used by Guard
+  knownRoles: Record<string, RoleType>; // Used by Seer, Wolf Seer, Medium, Sisters
+  lastProtectedPlayerId: string | null; // Used by Guard / Bodyguard
   isPeeking: boolean;                   // Used by Little Girl
   exposureLevel: number;                // 0-100 warning meter for Little Girl
+  elderLivesRemaining: number;          // 2 for Elder, 1 for others
+  foxPowerLost: boolean;                // True if Fox sniffed 3 non-wolves
+  lastFoxSniff: FoxSniffResult | null;  // Latest Fox sniff result
+  loverPartnerId: string | null;        // Linked by Cupid
+  roleModelId: string | null;           // Chosen by Wild Child on Night 1
+  isMayor: boolean;                     // Mayor / Sheriff badge (2x vote weight & tie-breaker)
   stats: PlayerStats;
 }
 
@@ -81,11 +117,22 @@ export type NightActionType =
   | 'WITCH_POISON'
   | 'GUARD_PROTECT'
   | 'BLACK_WOLF_INFECT'
-  | 'WHITE_WOLF_KILL';
+  | 'WHITE_WOLF_KILL'
+  | 'BIG_BAD_WOLF_KILL'
+  | 'WOLF_SEER_INSPECT'
+  | 'FOX_SNIFF'
+  | 'MEDIUM_INSPECT'
+  | 'CROW_CURSE'
+  | 'CUPID_LINK'
+  | 'WILD_CHILD_MODEL'
+  | 'THIEF_SWAP'
+  | 'SERIAL_KILLER_KILL';
 
 export interface NightActionPayload {
   actionType: NightActionType;
   targetId?: string | null;
+  secondTargetId?: string | null; // Used by Cupid to link 2 Lovers
+  choiceIndex?: 0 | 1;            // Used by Thief to pick 1 of 2 extra cards
 }
 
 export interface NightActionsState {
@@ -93,10 +140,22 @@ export interface NightActionsState {
   guardTargetId: string | null;
   seerTargetId: string | null;
   seerInspectedThisNight: boolean;
+  wolfSeerTargetId: string | null;
+  wolfSeerInspectedThisNight: boolean;
+  mediumTargetId: string | null;
+  mediumInspectedThisNight: boolean;
+  foxTargetId: string | null;
+  foxSniffedThisNight: boolean;
   witchHealUsedThisNight: boolean;
   witchPoisonTargetId: string | null;
   blackWolfInfectUsedThisNight: boolean;
+  bigBadWolfTargetId: string | null;
   whiteWolfTargetId: string | null;
+  crowTargetId: string | null;
+  serialKillerTargetId: string | null;
+  cupidLoverIds: [string, string] | null;
+  wildChildModelId: string | null;
+  thiefChosenIndex: 0 | 1 | null;
   submittedPlayerIds: string[];
 }
 
@@ -118,17 +177,27 @@ export interface ChatMessage {
   senderId: string;
   senderName: string;
   senderColor: string;
-  channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SYSTEM';
+  channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS' | 'SYSTEM';
   content: string;
   timestamp: number;
   isAnonymized?: boolean;
 }
 
+export type DeathCause =
+  | 'WEREWOLVES'
+  | 'BIG_BAD_WOLF'
+  | 'WITCH_POISON'
+  | 'WHITE_WOLF'
+  | 'SERIAL_KILLER'
+  | 'HUNTER_SHOT'
+  | 'HEARTBREAK'
+  | 'EXECUTION';
+
 export interface NightCasualty {
   playerId: string;
   nickname: string;
-  role: RoleType;
-  cause: 'WEREWOLVES' | 'WITCH_POISON' | 'WHITE_WOLF' | 'HUNTER_SHOT' | 'EXECUTION';
+  role: VisibleRoleType;
+  cause: DeathCause;
 }
 
 export interface MvpAward {
@@ -143,6 +212,7 @@ export interface RoomConfig {
   timers: PhaseTimers;
   enabledRoles: Record<RoleType, number>;
   allowWebRTC: boolean;
+  revealDeadRoles: boolean; // Host toggle: reveal dead players' roles or keep hidden
 }
 
 export interface RoomState {
@@ -160,6 +230,11 @@ export interface RoomState {
   blackWolfInfectionAvailable: boolean;
   wolfAlertedThisNight: boolean;
   wolfAliasMap: Record<string, string>; // wolfPlayerId -> "Wolf 1", "Wolf 2"
+  thiefExtraRoles: [RoleType, RoleType] | null;
+  lovers: [string, string] | null;
+  crowCursedPlayerId: string | null; // Receives +2 automatic votes on the next daytime voting board
+  villagePowersLost: boolean;        // True if Elder was executed by village vote
+  anyWolfHasDied: boolean;           // Disables Big Bad Wolf's extra kill once true
   // Dawn & Day state
   lastNightCasualties: NightCasualty[];
   lastNightInfectedId: string | null;
@@ -192,6 +267,9 @@ export interface SanitizedPlayerState {
   deathReason: string | null;
   isSpeaking: boolean;
   isTyping: boolean;
+  isMayor: boolean;
+  isCrowCursed: boolean;
+  isLoverWithSelf: boolean;
 }
 
 export interface SanitizedSelfSecretState {
@@ -209,6 +287,13 @@ export interface SanitizedSelfSecretState {
   hasSubmittedNightAction: boolean;
   nightActionSummary: string | null;
   wasInfectedToWolf: boolean;
+  elderLivesRemaining: number;
+  foxPowerLost: boolean;
+  lastFoxSniff: FoxSniffResult | null;
+  loverPartnerId: string | null;
+  roleModelId: string | null;
+  thiefExtraRoles: [RoleType, RoleType] | null;
+  canBigBadWolfKill: boolean;
 }
 
 export interface SanitizedRoomState {
@@ -223,6 +308,8 @@ export interface SanitizedRoomState {
   wolfVotes: Record<string, string | null> | null;
   wolfAlertedThisNight: boolean;
   lastNightCasualties: NightCasualty[];
+  crowCursedPlayerId: string | null;
+  villagePowersLost: boolean;
   skipDiscussionVotes: string[];
   dayVotes: Record<string, string | 'SKIP'>;
   lastExecutedPlayer: NightCasualty | null;

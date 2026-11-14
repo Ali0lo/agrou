@@ -6,12 +6,13 @@ An *Agrou*-inspired, real-time multiplayer social deduction browser game for **4
 
 ## ✨ Features
 
-- **Cozy-Yet-Eerie Campfire Arena:** Radial trigonometric seating (`sin`/`cos`) around an animated SVG campfire that dynamically shifts between warm daytime embers and deep indigo moonlight.
+- **Cozy-Yet-Eerie Campfire Arena:** Radial trigonometric seating (`sin`/`cos`) around an animated SVG campfire strictly centered at `(50%, 50%)` that dynamically shifts between warm daytime embers and deep indigo moonlight.
+- **Host Lobby Setting — Reveal Dead Players' Roles (`revealDeadRoles`):** Toggle whether eliminated players' roles are revealed (`"Ölən oyunçuların rolunu göstər"`) or kept hidden (`"Rolu gizlidir 🔒"`) until the end of the match (with Medium / Ruhçağıran able to inspect dead players' hidden roles at night).
 - **Server-Authoritative Anti-Cheat:** All phase timers, vote tallies, and night resolutions run exclusively on the server. Each player receives an individually sanitized state snapshot via `sanitizeStateForPlayer(roomState, playerId)`—hidden roles are stripped to `"UNKNOWN"` unless authorized.
-- **10 Playable Roles Across 3 Factions:**
-  - **Village Team:** Villager, Seer, Witch (Heal & Poison Potions), Guard, Hunter (15s dying revenge shot), Little Girl (real-time peeking on anonymized Wolf chat with an exposure risk gauge).
-  - **Werewolf Team:** Werewolf, Black Wolf (single-use secret infection that converts the pack's victim into a Werewolf).
-  - **Neutral Roles:** Angel (instant solo win if executed on Day 1), White Wolf (masks as a regular Werewolf, can betray a fellow Wolf every second night, wins only as the sole survivor).
+- **All 22 Classic Agrou / Werewolf Roles Across 3 Factions:**
+  - **A. Kəndlilər / Village Team (12 Roles):** Kəndli (*Villager*), Kahin (*Seer*), Mühafizəçi (*Bodyguard*), Cadugər (*Witch*), Ovçu (*Hunter*), Kupidon (*Cupid*), Kiçik Qız (*Little Girl*), Ağsaqqal (*Elder* — 2 lives vs. wolves), Qarğa (*Crow* — +2 vote curse), Qardaşlar (*Two Sisters / Brothers*), Ruhçağıran (*Medium* — talks with ghosts & inspects dead roles), Tülkü (*Fox* — sniffs 3 adjacent seats).
+  - **B. Canavarlar / Werewolf Team (5 Roles):** Canavar (*Werewolf*), Böyük Qara Canavar (*Big Bad Wolf* — extra kill until a wolf dies), Yoluxucu Ata Canavar (*Infectious Father of Wolves* — 1x secret infection), Görücü Canavar (*Wolf Seer*), Ağ Canavar (*White Werewolf* — solo betrayer).
+  - **C. Neytral & Xüsusi Rollar / Neutral & Special (5 Roles):** Oğru (*Thief* — Night 1 card swap), Vəhşi Uşaq (*Wild Child* — Role Model conversion), Təlxək / Dəli (*Jester / Fool* — wins if voted out), Zərbəçi / Qatil (*Serial Killer*), Bələdiyyə Başçısı / Şerif (*Mayor / Sheriff* — 2x vote weight & tie-breaker).
 - **Multi-Channel Chat & Audio:** Public Campfire Chat, private red-tinted Werewolf Pack Chat (with anonymized `"Wolf 1"`, `"Wolf 2"` spying for a peeking Little Girl), Ghost Chat for dead spectators, push-to-talk indicators, and zero-dependency synthesized Web Audio API sound effects.
 - **Seamless Reconnection & AI Bots:** Automatic mid-match seat & role restoration on browser refresh via `sessionStorage`, plus 1-click AI bots so you can test or fill 4–12 player lobbies anytime.
 

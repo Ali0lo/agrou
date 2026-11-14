@@ -7,13 +7,17 @@ import {
   MicOff,
   Send,
   Skull,
+  Users,
 } from 'lucide-react';
 import { ChatMessage, SanitizedRoomState } from '../types/game';
 
 interface ChatPanelProps {
   room: SanitizedRoomState;
   messages: ChatMessage[];
-  onSendMessage: (content: string, channel: 'PUBLIC' | 'WOLF' | 'GHOST') => void;
+  onSendMessage: (
+    content: string,
+    channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS'
+  ) => void;
   onTypingChange: (isTyping: boolean) => void;
   onSpeakingChange: (isSpeaking: boolean) => void;
 }
@@ -30,8 +34,16 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const isAlive = Boolean(selfPlayer?.isAlive);
   const isWolf =
     self?.role === 'WEREWOLF' ||
+    self?.role === 'BIG_BAD_WOLF' ||
     self?.role === 'BLACK_WOLF' ||
+    self?.role === 'WOLF_SEER' ||
     self?.role === 'WHITE_WOLF';
+  const isSister = self?.role === 'SISTERS';
+  const isMediumAtNight =
+    room.phase === 'NIGHT_PHASE' &&
+    isAlive &&
+    self?.role === 'MEDIUM' &&
+    !room.villagePowersLost;
   const isLittleGirlPeeking =
     room.phase === 'NIGHT_PHASE' &&
     isAlive &&
@@ -39,28 +51,54 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     self.isPeeking;
 
   const canAccessWolfTab =
-    (room.phase === 'NIGHT_PHASE' && isAlive && (isWolf || isLittleGirlPeeking)) ||
+    (room.phase === 'NIGHT_PHASE' &&
+      isAlive &&
+      (isWolf || isLittleGirlPeeking)) ||
     !isAlive ||
     room.phase === 'GAME_OVER';
 
-  const canAccessGhostTab = !isAlive || room.phase === 'GAME_OVER';
+  const canAccessGhostTab =
+    !isAlive || isMediumAtNight || room.phase === 'GAME_OVER';
 
-  const [activeTab, setActiveTab] = useState<'PUBLIC' | 'WOLF' | 'GHOST'>('PUBLIC');
+  const canAccessSistersTab =
+    (isAlive && isSister) || !isAlive || room.phase === 'GAME_OVER';
+
+  const [activeTab, setActiveTab] = useState<
+    'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS'
+  >('PUBLIC');
   const [input, setInput] = useState('');
   const [isHoldingPtt, setIsHoldingPtt] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimeoutRef = useRef<number | null>(null);
 
-  // Automatically switch to Wolf Chat at night for Werewolves or Peeking Little Girl, or Ghost Chat on death
   useEffect(() => {
-    if (room.phase === 'NIGHT_PHASE' && isAlive && (isWolf || isLittleGirlPeeking)) {
+    if (
+      room.phase === 'NIGHT_PHASE' &&
+      isAlive &&
+      (isWolf || isLittleGirlPeeking)
+    ) {
       setActiveTab('WOLF');
-    } else if (!isAlive && room.phase !== 'LOBBY' && room.phase !== 'GAME_OVER') {
+    } else if (isMediumAtNight) {
+      setActiveTab('GHOST');
+    } else if (room.phase === 'NIGHT_PHASE' && isAlive && isSister) {
+      setActiveTab('SISTERS');
+    } else if (
+      !isAlive &&
+      room.phase !== 'LOBBY' &&
+      room.phase !== 'GAME_OVER'
+    ) {
       setActiveTab('GHOST');
     } else {
       setActiveTab('PUBLIC');
     }
-  }, [room.phase, isAlive, isWolf, isLittleGirlPeeking]);
+  }, [
+    room.phase,
+    isAlive,
+    isWolf,
+    isLittleGirlPeeking,
+    isMediumAtNight,
+    isSister,
+  ]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -78,6 +116,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
     if (activeTab === 'GHOST') {
       return msg.channel === 'GHOST';
     }
+    if (activeTab === 'SISTERS') {
+      return msg.channel === 'SISTERS';
+    }
     return true;
   });
 
@@ -86,51 +127,65 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       if (isLittleGirlPeeking) {
         return {
           allowed: false,
-          placeholder: '🕯️ Peeking secretly at Werewolf chat (Read-only)...',
+          placeholder: '🕯️ Canavar söhbətini gizlicə oxuyursunuz (Yalnız oxu)...',
         };
       }
       if (room.phase === 'NIGHT_PHASE' && isAlive && isWolf) {
         return {
           allowed: true,
-          placeholder: 'Whisper to the Werewolf pack...',
+          placeholder: 'Canavar sürüsünə pıçılda...',
         };
       }
       return {
         allowed: false,
-        placeholder: 'Werewolf chat is only active for living Wolves at night.',
+        placeholder: 'Canavar söhbəti yalnız gecə aktivdir.',
+      };
+    }
+
+    if (activeTab === 'SISTERS') {
+      if (isAlive && isSister) {
+        return {
+          allowed: true,
+          placeholder: 'Qardaş/Bacı ilə gizli söhbət...',
+        };
+      }
+      return {
+        allowed: false,
+        placeholder: 'Yalnız Qardaşlar yaza bilər.',
       };
     }
 
     if (activeTab === 'GHOST') {
-      if (!isAlive || room.phase === 'GAME_OVER') {
+      if (!isAlive || isMediumAtNight || room.phase === 'GAME_OVER') {
         return {
           allowed: true,
-          placeholder: 'Whisper to fellow ghosts in the afterlife...',
+          placeholder: isMediumAtNight
+            ? '👻 Ruhçağıran olaraq ölülərlə danışın...'
+            : 'Ruhlar aləmində yazın...',
         };
       }
       return {
         allowed: false,
-        placeholder: 'Only ghosts can speak here.',
+        placeholder: 'Yalnız ruhlar burada danışa bilər.',
       };
     }
 
-    // PUBLIC
     if (!isAlive && room.phase !== 'LOBBY' && room.phase !== 'GAME_OVER') {
       return {
         allowed: false,
-        placeholder: 'Ghosts cannot speak to the living. Switch to Ghost Chat!',
+        placeholder: 'Ruhlar ümumi söhbətə yaza bilməz. Ruh Söhbətinə keçin!',
       };
     }
     if (room.phase === 'NIGHT_PHASE') {
       return {
         allowed: false,
-        placeholder: 'Public campfire chat is asleep during the night...',
+        placeholder: 'Gecə vaxtı kənd yatıb — ümumi söhbət bağlıdır...',
       };
     }
 
     return {
       allowed: true,
-      placeholder: 'Speak around the campfire...',
+      placeholder: 'Tonqal ətrafında fikrinizi yazın...',
     };
   };
 
@@ -164,35 +219,37 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
 
   return (
     <div
-      className={`flex flex-col h-[460px] lg:h-[580px] rounded-2xl border backdrop-blur-md shadow-2xl overflow-hidden transition-colors duration-500 ${
+      className={`flex flex-col h-[480px] lg:h-[600px] rounded-2xl border backdrop-blur-md shadow-2xl overflow-hidden transition-colors duration-500 ${
         activeTab === 'WOLF'
           ? 'bg-red-950/40 border-red-500/40'
           : activeTab === 'GHOST'
           ? 'bg-slate-900/75 border-cyan-500/30'
+          : activeTab === 'SISTERS'
+          ? 'bg-sky-950/40 border-sky-500/40'
           : 'bg-slate-900/75 border-slate-800'
       }`}
     >
       {/* Channel Tabs Header */}
-      <div className="p-2.5 border-b border-slate-800/90 flex items-center justify-between gap-1 bg-slate-950/60">
-        <div className="flex items-center gap-1">
+      <div className="p-2.5 border-b border-slate-800/90 flex flex-wrap items-center justify-between gap-1 bg-slate-950/60">
+        <div className="flex flex-wrap items-center gap-1">
           <button
             type="button"
             onClick={() => setActiveTab('PUBLIC')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${
               activeTab === 'PUBLIC'
                 ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
             <Flame className="w-3.5 h-3.5" />
-            <span>Campfire</span>
+            <span>Tonqal</span>
           </button>
 
           {canAccessWolfTab && (
             <button
               type="button"
               onClick={() => setActiveTab('WOLF')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${
                 activeTab === 'WOLF'
                   ? 'bg-red-600/30 text-red-200 border border-red-500/50'
                   : 'text-red-400/80 hover:text-red-200 hover:bg-red-950/50'
@@ -203,7 +260,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               ) : (
                 <Skull className="w-3.5 h-3.5" />
               )}
-              <span>{isLittleGirlPeeking ? 'Spying (Wolves)' : 'Wolf Pack'}</span>
+              <span>{isLittleGirlPeeking ? 'İzləmə' : 'Canavarlar'}</span>
+            </button>
+          )}
+
+          {canAccessSistersTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('SISTERS')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${
+                activeTab === 'SISTERS'
+                  ? 'bg-sky-500/25 text-sky-200 border border-sky-400/50'
+                  : 'text-sky-400/80 hover:text-sky-200 hover:bg-slate-800/60'
+              }`}
+            >
+              <Users className="w-3.5 h-3.5" />
+              <span>Qardaşlar</span>
             </button>
           )}
 
@@ -211,14 +283,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             <button
               type="button"
               onClick={() => setActiveTab('GHOST')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition ${
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 transition ${
                 activeTab === 'GHOST'
                   ? 'bg-cyan-500/20 text-cyan-200 border border-cyan-500/40'
                   : 'text-cyan-400/80 hover:text-cyan-200 hover:bg-slate-800/60'
               }`}
             >
               <Ghost className="w-3.5 h-3.5" />
-              <span>Ghost Chat</span>
+              <span>Ruhlar</span>
             </button>
           )}
         </div>
@@ -232,7 +304,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
             onMouseLeave={() => isHoldingPtt && togglePushToTalk(false)}
             onTouchStart={() => togglePushToTalk(true)}
             onTouchEnd={() => togglePushToTalk(false)}
-            title="Hold to Speak (Push-to-Talk)"
+            title="Bas-Danış (Push-to-Talk)"
             className={`px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 border transition select-none ${
               isHoldingPtt
                 ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.5)]'
@@ -241,11 +313,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           >
             {isHoldingPtt ? (
               <>
-                <Mic className="w-3.5 h-3.5 animate-pulse" /> Talking
+                <Mic className="w-3.5 h-3.5 animate-pulse" /> Danışır
               </>
             ) : (
               <>
-                <MicOff className="w-3.5 h-3.5" /> Hold PTT
+                <MicOff className="w-3.5 h-3.5" /> PTT
               </>
             )}
           </button>
@@ -259,7 +331,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       >
         {filteredMessages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 text-xs px-4">
-            <p>No messages in this channel yet.</p>
+            <p>Bu kanalda hələ mesaj yoxdur.</p>
           </div>
         ) : (
           filteredMessages.map((msg) => {
@@ -282,6 +354,8 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     ? 'bg-red-950/60 border-red-800/50 text-red-100'
                     : msg.channel === 'GHOST'
                     ? 'bg-cyan-950/35 border-cyan-800/40 text-cyan-100 italic'
+                    : msg.channel === 'SISTERS'
+                    ? 'bg-sky-950/50 border-sky-800/50 text-sky-100'
                     : 'bg-slate-950/65 border-slate-800/80 text-slate-200'
                 }`}
               >
@@ -293,7 +367,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                     {msg.senderName}
                     {msg.isAnonymized && (
                       <span className="ml-1.5 px-1.5 py-0.2 rounded bg-red-500/20 text-[9px] text-red-300 uppercase">
-                        Masked
+                        Gizli
                       </span>
                     )}
                   </span>

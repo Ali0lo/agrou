@@ -1,3 +1,4 @@
+import { ROLE_DEFINITIONS } from '../../constants/roles.js';
 import {
   Faction,
   NightActionPayload,
@@ -16,10 +17,13 @@ export interface NightResolutionContext {
   room: RoomState;
   protectedPlayerIds: Set<string>;
   wolfVictimId: string | null;
+  bigBadWolfVictimId: string | null;
   witchSavedVictim: boolean;
   poisonedPlayerIds: Set<string>;
   infectedPlayerId: string | null;
   whiteWolfVictimId: string | null;
+  serialKillerVictimId: string | null;
+  crowCursedId: string | null;
   seerInspection: { seerId: string; targetId: string; role: RoleType } | null;
   casualties: NightCasualty[];
 }
@@ -27,6 +31,9 @@ export interface NightResolutionContext {
 export interface RoleMetadata {
   role: RoleType;
   name: string;
+  nameAz: string;
+  displayName: string;
+  icon: string;
   faction: Faction;
   shortDescription: string;
   winCondition: string;
@@ -53,25 +60,36 @@ export interface RoleStrategy {
 }
 
 export function isWolfPackRole(role: RoleType): boolean {
-  return role === 'WEREWOLF' || role === 'BLACK_WOLF' || role === 'WHITE_WOLF';
+  return (
+    role === 'WEREWOLF' ||
+    role === 'BIG_BAD_WOLF' ||
+    role === 'BLACK_WOLF' ||
+    role === 'WOLF_SEER' ||
+    role === 'WHITE_WOLF'
+  );
+}
+
+export function isHostileNeutralRole(role: RoleType): boolean {
+  return role === 'WHITE_WOLF' || role === 'SERIAL_KILLER';
 }
 
 export function getFactionForRole(role: RoleType): Faction {
-  switch (role) {
-    case 'VILLAGER':
-    case 'SEER':
-    case 'WITCH':
-    case 'GUARD':
-    case 'HUNTER':
-    case 'LITTLE_GIRL':
-      return 'VILLAGE';
-    case 'WEREWOLF':
-    case 'BLACK_WOLF':
-      return 'WEREWOLF';
-    case 'ANGEL':
-    case 'WHITE_WOLF':
-      return 'NEUTRAL';
-  }
+  return ROLE_DEFINITIONS[role]?.faction ?? 'VILLAGE';
+}
+
+export function buildRoleMetadata(role: RoleType): RoleMetadata {
+  const def = ROLE_DEFINITIONS[role];
+  return {
+    role: def.role,
+    name: def.nameEn,
+    nameAz: def.nameAz,
+    displayName: def.displayName,
+    icon: def.icon,
+    faction: def.faction,
+    shortDescription: def.shortDescription,
+    winCondition: def.winCondition,
+    hasNightAction: def.hasNightAction,
+  };
 }
 
 export function computeConsensusWolfTarget(room: RoomState): string | null {

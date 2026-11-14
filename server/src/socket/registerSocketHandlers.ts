@@ -152,6 +152,7 @@ export function registerSocketHandlers(
         timers?: Partial<PhaseTimers>;
         enabledRoles?: Partial<Record<RoleType, number>>;
         allowWebRTC?: boolean;
+        revealDeadRoles?: boolean;
       }) => {
         if (!session.roomCode || !session.playerId) return;
         const res = roomManager.updateConfig(
@@ -260,7 +261,7 @@ export function registerSocketHandlers(
       'chat:send',
       (payload: {
         content: string;
-        channel: 'PUBLIC' | 'WOLF' | 'GHOST';
+        channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS';
       }) => {
         if (!session.roomCode || !session.playerId) return;
         const res = roomManager.handleChatMessage({

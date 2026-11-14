@@ -28,6 +28,10 @@ const BOT_PRESETS = [
   { nickname: 'Wren', avatar: '🐿️', color: '#f97316' },
   { nickname: 'Moss', avatar: '🦡', color: '#84cc16' },
   { nickname: 'Ember', avatar: '🦊', color: '#eab308' },
+  { nickname: 'Luna', avatar: '🌙', color: '#a855f7' },
+  { nickname: 'Thorne', avatar: '🐗', color: '#ef4444' },
+  { nickname: 'Willow', avatar: '🦢', color: '#06b6d4' },
+  { nickname: 'Draven', avatar: '🦇', color: '#ec4899' },
 ];
 
 export type SoundCueType =
@@ -95,7 +99,7 @@ export class RoomManager {
     this.rooms.set(roomCode, room);
     GameEngine.appendSystemMessage(
       room,
-      `${hostPlayer.nickname} lit the campfire. Share code ${roomCode} to invite friends!`
+      `${hostPlayer.nickname} tonqalı yandırdı! Dostlarınızı dəvət etmək üçün kod: ${roomCode}`
     );
 
     return { room, player: hostPlayer };
@@ -115,7 +119,6 @@ export class RoomManager {
       return { error: `Room "${code}" does not exist.` };
     }
 
-    // Check if reconnecting with existing sessionToken
     if (params.sessionToken) {
       const existing = room.players.find(
         (p) => p.sessionToken === params.sessionToken
@@ -139,11 +142,10 @@ export class RoomManager {
       };
     }
 
-    if (room.players.length >= 12) {
-      return { error: 'This campfire is full (maximum 12 players).' };
+    if (room.players.length >= 16) {
+      return { error: 'This campfire is full (maximum 16 players).' };
     }
 
-    // Ensure unique nickname
     let desiredName = params.nickname.trim().slice(0, 20) || 'Wanderer';
     if (
       room.players.some(
@@ -166,7 +168,7 @@ export class RoomManager {
     room.players.push(player);
     GameEngine.appendSystemMessage(
       room,
-      `${player.nickname} took a seat around the campfire.`
+      `${player.nickname} tonqal ətrafında əyləşdi.`
     );
 
     return { room, player };
@@ -204,7 +206,6 @@ export class RoomManager {
       player.isSpeaking = false;
       player.isTyping = false;
 
-      // If host disconnected in LOBBY and another connected human exists, transfer host
       if (player.isHost && room.phase === 'LOBBY') {
         const nextHost = room.players.find(
           (p) => p.id !== player.id && !p.isBot && p.isConnected
@@ -225,7 +226,7 @@ export class RoomManager {
     if (room.phase !== 'LOBBY') return { error: 'Cannot add bots mid-game.' };
     const requester = room.players.find((p) => p.id === requesterId);
     if (!requester?.isHost) return { error: 'Only the host can add bots.' };
-    if (room.players.length >= 12) return { error: 'Room is full (max 12).' };
+    if (room.players.length >= 16) return { error: 'Room is full (max 16).' };
 
     const usedNames = new Set(room.players.map((p) => p.nickname));
     const preset =
@@ -279,6 +280,7 @@ export class RoomManager {
       timers?: Partial<PhaseTimers>;
       enabledRoles?: Partial<Record<RoleType, number>>;
       allowWebRTC?: boolean;
+      revealDeadRoles?: boolean;
     }
   ): { error?: string } {
     const room = this.getRoom(roomCode);
@@ -294,13 +296,34 @@ export class RoomManager {
     if (configUpdate.timers) {
       room.config.timers = {
         ...room.config.timers,
-        nightPhase: Math.min(180, Math.max(10, configUpdate.timers.nightPhase ?? room.config.timers.nightPhase)),
-        dayDiscussion: Math.min(300, Math.max(15, configUpdate.timers.dayDiscussion ?? room.config.timers.dayDiscussion)),
-        dayVoting: Math.min(120, Math.max(10, configUpdate.timers.dayVoting ?? room.config.timers.dayVoting)),
-        roleReveal: Math.min(20, Math.max(4, configUpdate.timers.roleReveal ?? room.config.timers.roleReveal)),
-        dawnSummary: Math.min(20, Math.max(4, configUpdate.timers.dawnSummary ?? room.config.timers.dawnSummary)),
-        executionReveal: Math.min(20, Math.max(4, configUpdate.timers.executionReveal ?? room.config.timers.executionReveal)),
-        hunterRevenge: Math.min(30, Math.max(10, configUpdate.timers.hunterRevenge ?? room.config.timers.hunterRevenge)),
+        nightPhase: Math.min(
+          180,
+          Math.max(10, configUpdate.timers.nightPhase ?? room.config.timers.nightPhase)
+        ),
+        dayDiscussion: Math.min(
+          300,
+          Math.max(15, configUpdate.timers.dayDiscussion ?? room.config.timers.dayDiscussion)
+        ),
+        dayVoting: Math.min(
+          120,
+          Math.max(10, configUpdate.timers.dayVoting ?? room.config.timers.dayVoting)
+        ),
+        roleReveal: Math.min(
+          20,
+          Math.max(4, configUpdate.timers.roleReveal ?? room.config.timers.roleReveal)
+        ),
+        dawnSummary: Math.min(
+          20,
+          Math.max(4, configUpdate.timers.dawnSummary ?? room.config.timers.dawnSummary)
+        ),
+        executionReveal: Math.min(
+          20,
+          Math.max(4, configUpdate.timers.executionReveal ?? room.config.timers.executionReveal)
+        ),
+        hunterRevenge: Math.min(
+          30,
+          Math.max(10, configUpdate.timers.hunterRevenge ?? room.config.timers.hunterRevenge)
+        ),
       };
     }
 
@@ -308,13 +331,17 @@ export class RoomManager {
       for (const [role, count] of Object.entries(configUpdate.enabledRoles)) {
         room.config.enabledRoles[role as RoleType] = Math.max(
           0,
-          Math.min(12, Math.floor(count ?? 0))
+          Math.min(16, Math.floor(count ?? 0))
         );
       }
     }
 
     if (typeof configUpdate.allowWebRTC === 'boolean') {
       room.config.allowWebRTC = configUpdate.allowWebRTC;
+    }
+
+    if (typeof configUpdate.revealDeadRoles === 'boolean') {
+      room.config.revealDeadRoles = configUpdate.revealDeadRoles;
     }
 
     this.broadcastSanitizedState(room.roomCode);
@@ -345,9 +372,13 @@ export class RoomManager {
     }
 
     this.broadcastSanitizedState(room.roomCode);
-    this.schedulePhaseTransition(room.roomCode, room.config.timers.roleReveal * 1000, () => {
-      this.transitionToNight(room.roomCode);
-    });
+    this.schedulePhaseTransition(
+      room.roomCode,
+      room.config.timers.roleReveal * 1000,
+      () => {
+        this.transitionToNight(room.roomCode);
+      }
+    );
 
     return {};
   }
@@ -362,19 +393,18 @@ export class RoomManager {
     this.emitSoundCue(roomCode, 'WOLF_HOWL');
     this.broadcastSanitizedState(roomCode);
 
-    // Trigger bot night actions after a short organic delay
     setTimeout(() => {
       this.executeBotNightActions(roomCode);
     }, 1500);
 
-    // Start 1-second interval for Little Girl peeking exposure & wolf alert check
     const tickInterval = setInterval(() => {
       const currentRoom = this.getRoom(roomCode);
       if (!currentRoom || currentRoom.phase !== 'NIGHT_PHASE') {
         clearInterval(tickInterval);
         return;
       }
-      const { wolfAlertTriggered } = GameEngine.tickLittleGirlExposure(currentRoom);
+      const { wolfAlertTriggered } =
+        GameEngine.tickLittleGirlExposure(currentRoom);
       if (wolfAlertTriggered) {
         this.notifyWolvesOfSpy(currentRoom);
       }
@@ -416,9 +446,10 @@ export class RoomManager {
 
     this.broadcastSanitizedState(roomCode);
 
-    // If Hunter died at night, wait for Hunter's 15s revenge window
     if (room.hunterRevenge && !room.hunterRevenge.resolved) {
-      const hunter = room.players.find((p) => p.id === room.hunterRevenge?.hunterId);
+      const hunter = room.players.find(
+        (p) => p.id === room.hunterRevenge?.hunterId
+      );
       if (hunter?.isBot) {
         setTimeout(() => this.executeBotHunterShot(roomCode), 1500);
       }
@@ -504,9 +535,10 @@ export class RoomManager {
 
     this.broadcastSanitizedState(roomCode);
 
-    // If executed player is Hunter, wait for 15s revenge shot window
     if (room.hunterRevenge && !room.hunterRevenge.resolved) {
-      const hunter = room.players.find((p) => p.id === room.hunterRevenge?.hunterId);
+      const hunter = room.players.find(
+        (p) => p.id === room.hunterRevenge?.hunterId
+      );
       if (hunter?.isBot) {
         setTimeout(() => this.executeBotHunterShot(roomCode), 1500);
       }
@@ -556,7 +588,8 @@ export class RoomManager {
         clearInterval(tickInterval);
         return;
       }
-      const { wolfAlertTriggered } = GameEngine.tickLittleGirlExposure(currentRoom);
+      const { wolfAlertTriggered } =
+        GameEngine.tickLittleGirlExposure(currentRoom);
       if (wolfAlertTriggered) {
         this.notifyWolvesOfSpy(currentRoom);
       }
@@ -648,7 +681,6 @@ export class RoomManager {
 
     this.broadcastSanitizedState(roomCode);
 
-    // If all alive human and bot players have cast a vote, resolve immediately
     const alivePlayers = room.players.filter((p) => p.isAlive);
     const allVoted =
       alivePlayers.length > 0 &&
@@ -686,7 +718,6 @@ export class RoomManager {
 
     this.broadcastSanitizedState(roomCode);
 
-    // Advance after brief pause so players see the shot result
     this.schedulePhaseTransition(roomCode, 3000, () => {
       if (triggeredFrom === 'DAWN_SUMMARY') {
         this.transitionToDayDiscussion(roomCode);
@@ -716,13 +747,14 @@ export class RoomManager {
   }
 
   /**
-   * Authoritative chat routing with strict channel isolation and Little Girl anonymization.
+   * Authoritative chat routing with strict channel isolation (PUBLIC, WOLF, GHOST, SISTERS).
+   * Medium can also communicate with dead players in GHOST chat during NIGHT_PHASE!
    */
   public handleChatMessage(params: {
     roomCode: string;
     senderId: string;
     content: string;
-    channel: 'PUBLIC' | 'WOLF' | 'GHOST';
+    channel: 'PUBLIC' | 'WOLF' | 'GHOST' | 'SISTERS';
   }): { error?: string } {
     const room = this.getRoom(params.roomCode);
     if (!room) return { error: 'Room not found.' };
@@ -733,15 +765,22 @@ export class RoomManager {
     const trimmed = params.content.trim().slice(0, 280);
     if (!trimmed) return {};
 
-    // 1. GHOST Channel (Dead players only)
+    // 1. GHOST Channel (Dead players + living Medium during NIGHT_PHASE)
     if (params.channel === 'GHOST') {
-      if (sender.isAlive && room.phase !== 'GAME_OVER') {
-        return { error: 'Living players cannot speak in Ghost Chat.' };
+      const isLivingMediumAtNight =
+        sender.isAlive &&
+        sender.role === 'MEDIUM' &&
+        !room.villagePowersLost &&
+        room.phase === 'NIGHT_PHASE';
+      if (sender.isAlive && !isLivingMediumAtNight && room.phase !== 'GAME_OVER') {
+        return { error: 'Only dead players (or the Medium at night) can speak in Ghost Chat.' };
       }
       const msg: ChatMessage = {
         id: crypto.randomUUID(),
         senderId: sender.id,
-        senderName: sender.nickname,
+        senderName: isLivingMediumAtNight
+          ? `👻 Ruhçağıran (${sender.nickname})`
+          : sender.nickname,
         senderColor: sender.color,
         channel: 'GHOST',
         content: trimmed,
@@ -752,7 +791,26 @@ export class RoomManager {
       return {};
     }
 
-    // 2. WOLF Channel (Alive Werewolves during NIGHT_PHASE)
+    // 2. SISTERS Channel (Alive Two Sisters / Brothers)
+    if (params.channel === 'SISTERS') {
+      if (!sender.isAlive || sender.role !== 'SISTERS') {
+        return { error: 'Only living Sisters/Brothers can use the Sibling Chat.' };
+      }
+      const msg: ChatMessage = {
+        id: crypto.randomUUID(),
+        senderId: sender.id,
+        senderName: sender.nickname,
+        senderColor: '#38bdf8',
+        channel: 'SISTERS',
+        content: trimmed,
+        timestamp: Date.now(),
+      };
+      room.messages.push(msg);
+      this.deliverChatMessage(room, msg);
+      return {};
+    }
+
+    // 3. WOLF Channel (Alive Werewolves during NIGHT_PHASE)
     if (params.channel === 'WOLF') {
       if (room.phase !== 'NIGHT_PHASE') {
         return { error: 'Werewolf chat is only active during the Night Phase.' };
@@ -775,7 +833,7 @@ export class RoomManager {
       return {};
     }
 
-    // 3. PUBLIC Channel
+    // 4. PUBLIC Channel
     if (!sender.isAlive && room.phase !== 'LOBBY' && room.phase !== 'GAME_OVER') {
       return { error: 'Ghosts cannot speak in the public campfire chat.' };
     }
@@ -809,7 +867,23 @@ export class RoomManager {
       }
 
       if (msg.channel === 'GHOST') {
-        if (!recipient.isAlive || room.phase === 'GAME_OVER') {
+        const isRecipientMediumAtNight =
+          recipient.isAlive &&
+          recipient.role === 'MEDIUM' &&
+          !room.villagePowersLost &&
+          room.phase === 'NIGHT_PHASE';
+        if (!recipient.isAlive || isRecipientMediumAtNight || room.phase === 'GAME_OVER') {
+          this.io.to(recipient.socketId).emit('chat:message', msg);
+        }
+        continue;
+      }
+
+      if (msg.channel === 'SISTERS') {
+        if (
+          (recipient.isAlive && recipient.role === 'SISTERS') ||
+          !recipient.isAlive ||
+          room.phase === 'GAME_OVER'
+        ) {
           this.io.to(recipient.socketId).emit('chat:message', msg);
         }
         continue;
@@ -823,7 +897,6 @@ export class RoomManager {
           recipient.role === 'LITTLE_GIRL' &&
           recipient.isPeeking
         ) {
-          // Anonymize sender as "Wolf 1", "Wolf 2", etc. for Little Girl peeking
           const alias = room.wolfAliasMap[msg.senderId] ?? 'Wolf 1';
           const anonymizedMsg: ChatMessage = {
             ...msg,
@@ -852,16 +925,12 @@ export class RoomManager {
         this.io.to(player.socketId).emit('night:wolfAlert', {
           suspicionLevel: 100,
           message:
-            '👀 Rustling in the bushes! You sense a Little Girl is peeking at the pack tonight!',
+            '👀 Kolluqda xışıltı var! Kiçik Qız bu gecə sürünü gizlicə izləyir!',
         });
       }
     }
   }
 
-  /**
-   * Broadcasts individually sanitized state to every connected player in the room.
-   * NEVER emits the raw `roomState`.
-   */
   public broadcastSanitizedState(roomCode: string): void {
     if (!this.io) return;
     const room = this.getRoom(roomCode);
@@ -912,9 +981,6 @@ export class RoomManager {
     }
   }
 
-  /**
-   * Simple AI bot behaviors so solo/small-group players can test full 4-12 seat lobbies.
-   */
   private executeBotNightActions(roomCode: string): void {
     const room = this.getRoom(roomCode);
     if (!room || room.phase !== 'NIGHT_PHASE') return;
@@ -929,6 +995,20 @@ export class RoomManager {
           actionType: 'WOLF_VOTE',
           targetId: target.id,
         });
+
+        if (bot.role === 'WOLF_SEER') {
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'WOLF_SEER_INSPECT',
+            targetId: target.id,
+          });
+        } else if (bot.role === 'BIG_BAD_WOLF' && !room.anyWolfHasDied) {
+          const extraTarget =
+            nonWolves.find((p) => p.id !== target.id) ?? target;
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'BIG_BAD_WOLF_KILL',
+            targetId: extraTarget.id,
+          });
+        }
       } else if (bot.role === 'GUARD') {
         const validTargets = alivePlayers.filter(
           (p) => p.id !== bot.lastProtectedPlayerId
@@ -944,12 +1024,53 @@ export class RoomManager {
         const candidates = alivePlayers.filter(
           (p) => p.id !== bot.id && !bot.knownRoles[p.id]
         );
-        const pool = candidates.length > 0 ? candidates : alivePlayers.filter((p) => p.id !== bot.id);
+        const pool =
+          candidates.length > 0
+            ? candidates
+            : alivePlayers.filter((p) => p.id !== bot.id);
         if (pool.length > 0) {
           const target = pool[crypto.randomInt(0, pool.length)];
           GameEngine.submitNightAction(room, bot.id, {
             actionType: 'SEER_INSPECT',
             targetId: target.id,
+          });
+        }
+      } else if (bot.role === 'FOX' && !bot.foxPowerLost) {
+        const target = alivePlayers[crypto.randomInt(0, alivePlayers.length)];
+        GameEngine.submitNightAction(room, bot.id, {
+          actionType: 'FOX_SNIFF',
+          targetId: target.id,
+        });
+      } else if (bot.role === 'CROW') {
+        const others = alivePlayers.filter((p) => p.id !== bot.id);
+        if (others.length > 0) {
+          const target = others[crypto.randomInt(0, others.length)];
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'CROW_CURSE',
+            targetId: target.id,
+          });
+        }
+      } else if (bot.role === 'SERIAL_KILLER') {
+        const others = alivePlayers.filter((p) => p.id !== bot.id);
+        if (others.length > 0) {
+          const target = others[crypto.randomInt(0, others.length)];
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'SERIAL_KILLER_KILL',
+            targetId: target.id,
+          });
+        }
+      } else if (bot.role === 'CUPID' && room.nightNumber === 1 && alivePlayers.length >= 2) {
+        GameEngine.submitNightAction(room, bot.id, {
+          actionType: 'CUPID_LINK',
+          targetId: alivePlayers[0].id,
+          secondTargetId: alivePlayers[1].id,
+        });
+      } else if (bot.role === 'WILD_CHILD' && room.nightNumber === 1) {
+        const others = alivePlayers.filter((p) => p.id !== bot.id);
+        if (others.length > 0) {
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'WILD_CHILD_MODEL',
+            targetId: others[0].id,
           });
         }
       }

@@ -1,7 +1,13 @@
 import React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { BookOpen, X } from 'lucide-react';
-import { ROLE_CATALOG, RoleInfo } from '../types/game';
+import {
+  NEUTRAL_ROLES,
+  ROLE_CATALOG,
+  VILLAGE_ROLES,
+  WEREWOLF_ROLES,
+} from '../constants/roles';
+import { RoleInfo } from '../types/game';
 
 interface RoleReferenceDrawerProps {
   isOpen: boolean;
@@ -12,22 +18,21 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
   isOpen,
   onClose,
 }) => {
-  const roles = Object.values(ROLE_CATALOG);
   const groups: { title: string; subtitle: string; items: RoleInfo[] }[] = [
     {
-      title: 'Village Team',
-      subtitle: 'Wins when all Werewolves and Killing Neutrals are dead',
-      items: roles.filter((r) => r.faction === 'VILLAGE'),
+      title: 'A. Kəndlilər (Village Team — 12 Rol)',
+      subtitle: 'Bütün Canavarlar və qatil neytrallar öldükdə qazanır',
+      items: VILLAGE_ROLES.map((r) => ROLE_CATALOG[r]),
     },
     {
-      title: 'Werewolf Team',
-      subtitle: 'Wins when Werewolves equal or outnumber non-Werewolves',
-      items: roles.filter((r) => r.faction === 'WEREWOLF'),
+      title: 'B. Canavarlar (Werewolf Team — 5 Rol)',
+      subtitle: 'Canavarlar qeyri-canavarlara bərabər və ya çox olduqda qazanır',
+      items: WEREWOLF_ROLES.map((r) => ROLE_CATALOG[r]),
     },
     {
-      title: 'Neutral Roles',
-      subtitle: 'Independent solo victory conditions',
-      items: roles.filter((r) => r.faction === 'NEUTRAL'),
+      title: 'C. Neytral & Xüsusi Rollar (5 Rol)',
+      subtitle: 'Müstəqil qələbə şərtləri və xüsusi mexanikalar',
+      items: NEUTRAL_ROLES.map((r) => ROLE_CATALOG[r]),
     },
   ];
 
@@ -54,10 +59,10 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
                 <BookOpen className="w-5 h-5 text-amber-400" />
                 <div>
                   <h2 className="text-base font-bold text-white">
-                    Campfire Role Almanac
+                    22 Klassik Agrou Rol Kitabçası
                   </h2>
                   <p className="text-xs text-slate-400">
-                    Reference guide for all playable roles & mechanics
+                    Bütün rolların gecə/gündüz gücləri və qələbə şərtləri
                   </p>
                 </div>
               </div>

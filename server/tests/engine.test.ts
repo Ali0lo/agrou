@@ -502,3 +502,174 @@ describe('Campfire Wolves - Win Condition Checks', () => {
     expect(check.winner).toBe('VILLAGE');
   });
 });
+
+describe('Campfire Wolves - revealDeadRoles & 22 Classic Agrou Roles', () => {
+  it('verifies all 22 classic Agrou roles are registered in the role engine', () => {
+    const all22 = GameEngine.getAllRoleKeys();
+    expect(all22).toHaveLength(22);
+  });
+
+  it('hides eliminated player roles when revealDeadRoles is false, except for Medium inspection or Game Over', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF',
+      'MEDIUM',
+      'VILLAGER',
+      'SEER',
+    ]);
+    room.config.revealDeadRoles = false;
+
+    // Night 1: Werewolf kills p3 (Villager)
+    GameEngine.submitNightAction(room, 'p1', {
+      actionType: 'WOLF_VOTE',
+      targetId: 'p3',
+    });
+    GameEngine.resolveNightAndEnterDawn(room);
+
+    // Living player p4 sees p3 as dead, but their role is hidden (UNKNOWN / null)
+    const sanitizedForVillager = sanitizeStateForPlayer(room, 'p4');
+    const deadSeatForVillager = sanitizedForVillager.players.find(
+      (p) => p.id === 'p3'
+    )!;
+    expect(deadSeatForVillager.isAlive).toBe(false);
+    expect(deadSeatForVillager.revealedRole).toBeNull();
+    expect(sanitizedForVillager.lastNightCasualties[0].role).toBe('UNKNOWN');
+
+    // Advance to Night 2: Medium (p2) inspects dead p3
+    GameEngine.enterDayDiscussion(room);
+    GameEngine.enterDayVoting(room);
+    GameEngine.castDayVote(room, 'p1', 'SKIP');
+    GameEngine.resolveDayVotesAndEnterExecution(room);
+    GameEngine.completeExecutionAndLoopToNight(room);
+
+    const mediumInspect = GameEngine.submitNightAction(room, 'p2', {
+      actionType: 'MEDIUM_INSPECT',
+      targetId: 'p3',
+    });
+    expect(mediumInspect.valid).toBe(true);
+
+    // Medium now sees p3's true role even though revealDeadRoles is false!
+    const sanitizedForMedium = sanitizeStateForPlayer(room, 'p2');
+    expect(
+      sanitizedForMedium.players.find((p) => p.id === 'p3')?.revealedRole
+    ).toBe('VILLAGER');
+  });
+
+  it('handles Elder 2 lives against wolves and village power loss when Elder is executed', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF',
+      'ELDER',
+      'SEER',
+      'VILLAGER',
+    ]);
+
+    // Night 1: Wolf attacks Elder (p2) -> Elder survives with 1 life left!
+    GameEngine.submitNightAction(room, 'p1', {
+      actionType: 'WOLF_VOTE',
+      targetId: 'p2',
+    });
+    GameEngine.resolveNightAndEnterDawn(room);
+
+    const elder = room.players.find((p) => p.id === 'p2')!;
+    expect(elder.isAlive).toBe(true);
+    expect(elder.elderLivesRemaining).toBe(1);
+    expect(room.lastNightCasualties).toHaveLength(0);
+
+    // Day 1: Village mistakenly votes out Elder (p2) -> villagePowersLost becomes true!
+    GameEngine.enterDayDiscussion(room);
+    GameEngine.enterDayVoting(room);
+    GameEngine.castDayVote(room, 'p1', 'p2');
+    GameEngine.castDayVote(room, 'p3', 'p2');
+    GameEngine.resolveDayVotesAndEnterExecution(room);
+
+    expect(elder.isAlive).toBe(false);
+    expect(room.villagePowersLost).toBe(true);
+  });
+
+  it('handles Cupid Lovers heartbreak chain and Wild Child transformation when Role Model dies', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF',
+      'CUPID',
+      'WILD_CHILD',
+      'VILLAGER',
+      'VILLAGER',
+    ]);
+
+    // Night 1: Cupid links p4 and p5 as Lovers; Wild Child chooses p4 as Role Model
+    expect(
+      GameEngine.submitNightAction(room, 'p2', {
+        actionType: 'CUPID_LINK',
+        targetId: 'p4',
+        secondTargetId: 'p5',
+      }).valid
+    ).toBe(true);
+
+    expect(
+      GameEngine.submitNightAction(room, 'p3', {
+        actionType: 'WILD_CHILD_MODEL',
+        targetId: 'p4',
+      }).valid
+    ).toBe(true);
+
+    // Werewolf kills p4 -> p5 dies of Heartbreak AND Wild Child (p3) transforms into WEREWOLF!
+    GameEngine.submitNightAction(room, 'p1', {
+      actionType: 'WOLF_VOTE',
+      targetId: 'p4',
+    });
+    GameEngine.resolveNightAndEnterDawn(room);
+
+    expect(room.players.find((p) => p.id === 'p4')?.isAlive).toBe(false);
+    expect(room.players.find((p) => p.id === 'p5')?.isAlive).toBe(false);
+    expect(room.players.find((p) => p.id === 'p3')?.role).toBe('WEREWOLF');
+  });
+
+  it('applies Crow +2 automatic votes, Mayor 2x vote weight, and Jester execution solo win', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF',
+      'CROW',
+      'MAYOR',
+      'JESTER',
+      'VILLAGER',
+    ]);
+
+    // Night 1: Crow curses Jester (p4) with +2 votes
+    expect(
+      GameEngine.submitNightAction(room, 'p2', {
+        actionType: 'CROW_CURSE',
+        targetId: 'p4',
+      }).valid
+    ).toBe(true);
+
+    GameEngine.resolveNightAndEnterDawn(room);
+    expect(room.crowCursedPlayerId).toBe('p4');
+
+    GameEngine.enterDayDiscussion(room);
+    GameEngine.enterDayVoting(room);
+
+    // Mayor (p3) also votes for p4 (+2 weight -> total 4 votes on Jester)
+    GameEngine.castDayVote(room, 'p3', 'p4');
+    GameEngine.resolveDayVotesAndEnterExecution(room);
+
+    expect(room.phase).toBe('GAME_OVER');
+    expect(room.winner).toBe('JESTER');
+  });
+
+  it('handles Fox sniffing 3 adjacent players and losing power when no wolf is in the trio', () => {
+    const room = createTestRoomWithRoles([
+      'WEREWOLF', // seat 0 (p1)
+      'VILLAGER', // seat 1 (p2)
+      'FOX',      // seat 2 (p3)
+      'SEER',     // seat 3 (p4)
+      'GUARD',    // seat 4 (p5)
+    ]);
+
+    // Fox sniffs p3 (neighbors p2 and p4 -> none of p2, p3, p4 are wolves!)
+    const sniffRes = GameEngine.submitNightAction(room, 'p3', {
+      actionType: 'FOX_SNIFF',
+      targetId: 'p3',
+    });
+    expect(sniffRes.valid).toBe(true);
+    const fox = room.players.find((p) => p.id === 'p3')!;
+    expect(fox.lastFoxSniff?.hasWolf).toBe(false);
+    expect(fox.foxPowerLost).toBe(true);
+  });
+});
