@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { Crown, Flame, Lock, Mic, Skull, Target, X } from 'lucide-react';
+import { Crown, Lock, Mic, Skull, Target, X } from 'lucide-react';
 import { ROLE_CATALOG } from '../constants/roles';
 import {
   ActiveNightSubMode,
@@ -221,7 +221,7 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
 
   return (
     <div
-      className={`relative w-full ${maxWidthClass} aspect-square mx-auto flex items-center justify-center select-none overflow-visible`}
+      className={`relative w-full ${maxWidthClass} aspect-square mx-auto my-4 flex items-center justify-center select-none overflow-visible`}
     >
       {/* Subtle geometric circle ring matching exact player placement radius */}
       <div
@@ -233,15 +233,17 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
       />
 
       {/* Campfire strictly pinned to mathematical center (50%, 50%) */}
-      <div
-        className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none transition-transform duration-300 ${
-          isDenseRing ? 'scale-75 sm:scale-90' : 'scale-90 sm:scale-100'
-        }`}
-      >
-        <CampfireSvg
-          phase={room.phase}
-          isSleepingVillager={isSleepingVillagerAtNight}
-        />
+      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 pointer-events-none flex items-center justify-center">
+        <div
+          className={`transition-transform duration-300 ${
+            isDenseRing ? 'scale-75 sm:scale-90' : 'scale-90 sm:scale-100'
+          }`}
+        >
+          <CampfireSvg
+            phase={room.phase}
+            isSleepingVillager={isSleepingVillagerAtNight}
+          />
+        </div>
       </div>
 
       {/* Empty state if alone in lobby */}
@@ -289,14 +291,17 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
           !room.config.revealDeadRoles;
 
         return (
-          <motion.div
+          <div
             key={seat.id}
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.25, delay: idx * 0.025 }}
             style={{ left: `${leftPct}%`, top: `${topPct}%` }}
-            className="absolute -translate-x-1/2 -translate-y-1/2 z-20 flex flex-col items-center group"
+            className="absolute -translate-x-1/2 -translate-y-1/2 z-20"
           >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.25, delay: idx * 0.025 }}
+              className="relative flex flex-col items-center group"
+            >
             <div className="relative">
               {/* Day Vote Count Pill */}
               {isVoting && votesOnSeat > 0 && (
@@ -388,7 +393,7 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
 
             {/* Seat Nameplate & Secret Role / Status Badges */}
             <div
-              className={`${seatLabelWidthClass} mt-1 flex flex-col items-center text-center pointer-events-none`}
+              className={`absolute top-full mt-1 left-1/2 -translate-x-1/2 ${seatLabelWidthClass} flex flex-col items-center text-center pointer-events-none`}
             >
               <div className="flex items-center justify-center gap-1 bg-slate-950/85 border border-slate-800/90 rounded-md px-1.5 py-0.5 max-w-full shadow">
                 {seat.isHost && (
@@ -451,17 +456,10 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
                 </div>
               )}
             </div>
-          </motion.div>
+            </motion.div>
+          </div>
         );
       })}
-
-      {/* Quick Subtle Center Status Flame Indicator when night is sleeping */}
-      {isNight && isSleepingVillagerAtNight && (
-        <div className="absolute left-1/2 top-[63%] -translate-x-1/2 z-10 pointer-events-none flex items-center gap-1 px-2.5 py-1 rounded-full bg-slate-950/75 border border-indigo-500/30 text-[10px] text-indigo-300">
-          <Flame className="w-3 h-3 text-indigo-400" />
-          <span>Kənd yatır...</span>
-        </div>
-      )}
     </div>
   );
 };

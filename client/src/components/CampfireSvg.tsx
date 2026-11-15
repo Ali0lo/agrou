@@ -23,7 +23,7 @@ export const CampfireSvg: React.FC<CampfireSvgProps> = ({
           opacity: isNight ? [0.35, 0.5, 0.35] : [0.55, 0.8, 0.55],
         }}
         transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
-        className={`absolute w-52 h-52 rounded-full blur-3xl transition-colors duration-1000 ${
+        className={`absolute inset-0 m-auto w-52 h-52 rounded-full blur-3xl transition-colors duration-1000 ${
           isNight
             ? 'bg-indigo-600/40'
             : isDawn
@@ -173,16 +173,18 @@ export const CampfireSvg: React.FC<CampfireSvgProps> = ({
         ))}
       </svg>
 
-      {/* Sleeping Zzz overlay for Alive Villagers during Night Phase */}
+      {/* Sleeping Zzz overlay anchored outside layout flow so SVG stays dead-center */}
       {isSleepingVillager && (
-        <motion.div
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-1 px-3 py-1 rounded-full bg-indigo-950/90 border border-indigo-400/30 text-xs text-indigo-200 flex items-center gap-1.5 shadow-lg"
-        >
-          <span className="animate-bounce">💤</span>
-          <span>Campfire is sleeping... Listen closely to the night</span>
-        </motion.div>
+        <div className="absolute top-full mt-2 left-1/2 -translate-x-1/2 whitespace-nowrap">
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="px-3 py-1 rounded-full bg-indigo-950/90 border border-indigo-400/30 text-xs text-indigo-200 flex items-center gap-1.5 shadow-lg"
+          >
+            <span className="animate-bounce">💤</span>
+            <span>Kənd yatır... Gecənin səslərini dinlə</span>
+          </motion.div>
+        </div>
       )}
     </div>
   );
