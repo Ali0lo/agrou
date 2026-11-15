@@ -1,22 +1,27 @@
 import crypto from 'node:crypto';
-import { ALL_22_ROLES, ROLE_DEFINITIONS } from '../constants/roles.js';
 import {
+  ALL_PLAYABLE_ROLES,
+  FACTION_QUOTA_TABLE,
+  NORMAL_SPECIAL_ROLES,
+  QETIL_SPECIAL_ROLES,
+  TEREFSIZ_ROLES,
+} from '../constants/roles.js';
+import {
+  ChatChannel,
   ChatMessage,
   NightActionPayload,
   NightActionsState,
+  NightCasualty,
   PhaseTimers,
   PlayerState,
   RoleType,
-  RoomConfig,
   RoomState,
+  WinningFaction,
 } from '../types/game.js';
+import { CHANNEL_BADGES } from './ChatAuthorization.js';
 import { NightResolver } from './roles/NightResolver.js';
-import {
-  getFactionForRole,
-  isWolfPackRole,
-  ValidationResult,
-} from './roles/RoleStrategy.js';
 import { getRoleStrategy } from './roles/RoleStrategies.js';
+import { getFactionForRole, isWolfPackRole } from './roles/RoleStrategy.js';
 import { WinConditionChecker } from './WinConditionChecker.js';
 
 export const DEFAULT_TIMERS: PhaseTimers = {
@@ -29,30 +34,19 @@ export const DEFAULT_TIMERS: PhaseTimers = {
   hunterRevenge: 15,
 };
 
-export const DEFAULT_ENABLED_ROLES: Record<RoleType, number> = {
-  VILLAGER: 2,
-  SEER: 1,
-  GUARD: 1,
-  WITCH: 1,
-  HUNTER: 0,
-  CUPID: 0,
-  LITTLE_GIRL: 0,
-  ELDER: 0,
-  CROW: 0,
-  SISTERS: 0,
-  MEDIUM: 0,
-  FOX: 0,
-  WEREWOLF: 1,
-  BIG_BAD_WOLF: 0,
-  BLACK_WOLF: 0,
-  WOLF_SEER: 0,
-  WHITE_WOLF: 0,
-  THIEF: 0,
-  WILD_CHILD: 0,
-  JESTER: 0,
-  SERIAL_KILLER: 0,
-  MAYOR: 0,
-  ANGEL: 0,
+export const DEFAULT_ENABLED_ROLES: Record<RoleType, boolean> = {
+  VILLAGER: true,
+  SEER: true,
+  WITCH: true,
+  GUARD: true,
+  HUNTER: true,
+  LITTLE_GIRL: true,
+  WEREWOLF: true,
+  BLACK_WOLF: true,
+  MYSTIC_WOLF: true,
+  ANGEL: true,
+  WHITE_WOLF: true,
+  ARSONIST: true,
 };
 
 export function createEmptyNightActions(): NightActionsState {
@@ -61,34 +55,19 @@ export function createEmptyNightActions(): NightActionsState {
     guardTargetId: null,
     seerTargetId: null,
     seerInspectedThisNight: false,
-    wolfSeerTargetId: null,
-    wolfSeerInspectedThisNight: false,
-    mediumTargetId: null,
-    mediumInspectedThisNight: false,
-    foxTargetId: null,
-    foxSniffedThisNight: false,
+    mysticWolfTargetId: null,
+    mysticWolfInspectedThisNight: false,
     witchHealUsedThisNight: false,
     witchPoisonTargetId: null,
     blackWolfInfectUsedThisNight: false,
-    bigBadWolfTargetId: null,
     whiteWolfTargetId: null,
-    crowTargetId: null,
-    serialKillerTargetId: null,
-    cupidLoverIds: null,
-    wildChildModelId: null,
-    thiefChosenIndex: null,
+    arsonistActionThisNight: null,
+    arsonistTargetId: null,
     submittedPlayerIds: [],
   };
 }
 
 export function createInitialRoomState(roomCode: string): RoomState {
-  const defaultConfig: RoomConfig = {
-    timers: { ...DEFAULT_TIMERS },
-    enabledRoles: { ...DEFAULT_ENABLED_ROLES },
-    allowWebRTC: true,
-    revealDeadRoles: true,
-  };
-
   return {
     roomCode,
     createdAt: Date.now(),
@@ -96,7 +75,12 @@ export function createInitialRoomState(roomCode: string): RoomState {
     dayNumber: 0,
     nightNumber: 0,
     phaseEndsAt: null,
-    config: defaultConfig,
+    config: {
+      timers: { ...DEFAULT_TIMERS },
+      enabledRoles: { ...DEFAULT_ENABLED_ROLES },
+      allowWebRTC: true,
+      revealDeadRoles: true,
+    },
     players: [],
     nightActions: createEmptyNightActions(),
     witchPotions: {
@@ -104,13 +88,9 @@ export function createInitialRoomState(roomCode: string): RoomState {
       poisonAvailable: true,
     },
     blackWolfInfectionAvailable: true,
+    arsonistDousedIds: [],
     wolfAlertedThisNight: false,
     wolfAliasMap: {},
-    thiefExtraRoles: null,
-    lovers: null,
-    crowCursedPlayerId: null,
-    villagePowersLost: false,
-    anyWolfHasDied: false,
     lastNightCasualties: [],
     lastNightInfectedId: null,
     skipDiscussionVotes: [],
@@ -139,9 +119,9 @@ export function createPlayerState(params: {
     id: params.id ?? crypto.randomUUID(),
     socketId: params.socketId,
     sessionToken: params.sessionToken ?? crypto.randomUUID(),
-    nickname: params.nickname.trim().slice(0, 20) || 'Wanderer',
-    avatar: params.avatar || '🦊',
-    color: params.color || '#f97316',
+    nickname: params.nickname,
+    avatar: params.avatar,
+    color: params.color,
     seatIndex: params.seatIndex,
     isHost: params.isHost,
     isBot: params.isBot ?? false,
@@ -157,15 +137,10 @@ export function createPlayerState(params: {
     isSpeaking: false,
     isTyping: false,
     knownRoles: {},
+    mysticWolfInspections: {},
     lastProtectedPlayerId: null,
     isPeeking: false,
     exposureLevel: 0,
-    elderLivesRemaining: 1,
-    foxPowerLost: false,
-    lastFoxSniff: null,
-    loverPartnerId: null,
-    roleModelId: null,
-    isMayor: false,
     stats: {
       votesCast: 0,
       correctWolfVotes: 0,
@@ -176,130 +151,105 @@ export function createPlayerState(params: {
   };
 }
 
+/**
+ * Cryptographic Fisher-Yates shuffle using `node:crypto` randomInt.
+ */
+function cryptoShuffle<T>(items: T[]): T[] {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = crypto.randomInt(0, i + 1);
+    const tmp = arr[i];
+    arr[i] = arr[j];
+    arr[j] = tmp;
+  }
+  return arr;
+}
+
 export class GameEngine {
-  /**
-   * Builds a role deck for `playerCount` players based on `enabledRoles`.
-   * Ensures at least 1 Werewolf-pack member and pads/trims cleanly to `playerCount`.
-   */
-  static buildRoleDeck(
-    playerCount: number,
-    enabledRoles: Record<RoleType, number>
-  ): RoleType[] {
-    const deck: RoleType[] = [];
-
-    const priorityRoles: RoleType[] = [
-      'WEREWOLF',
-      'BIG_BAD_WOLF',
-      'BLACK_WOLF',
-      'WOLF_SEER',
-      'WHITE_WOLF',
-      'SERIAL_KILLER',
-      'SEER',
-      'WITCH',
-      'GUARD',
-      'HUNTER',
-      'CUPID',
-      'LITTLE_GIRL',
-      'ELDER',
-      'CROW',
-      'SISTERS',
-      'MEDIUM',
-      'FOX',
-      'THIEF',
-      'WILD_CHILD',
-      'JESTER',
-      'MAYOR',
-      'ANGEL',
-      'VILLAGER',
-    ];
-
-    for (const role of priorityRoles) {
-      const count = Math.max(0, Math.floor(enabledRoles[role] ?? 0));
-      for (let i = 0; i < count; i++) {
-        deck.push(role);
-      }
-    }
-
-    if (!deck.some((r) => isWolfPackRole(r))) {
-      deck.unshift('WEREWOLF');
-    }
-
-    if (deck.length > playerCount) {
-      deck.length = playerCount;
-    }
-    while (deck.length < playerCount) {
-      deck.push('VILLAGER');
-    }
-
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = crypto.randomInt(0, i + 1);
-      const tmp = deck[i];
-      deck[i] = deck[j];
-      deck[j] = tmp;
-    }
-
-    return deck;
+  static getAllRoleKeys(): RoleType[] {
+    return [...ALL_PLAYABLE_ROLES];
   }
 
   /**
-   * Starts the game from LOBBY -> ROLE_REVEAL.
+   * Automatic Faction-Quota Deck Builder (4–16 Players):
+   * 1. Looks up exact (normal, qetil, terefsiz) quota from FACTION_QUOTA_TABLE[playerCount].
+   * 2. Picks up to `terefsiz` unique enabled Tərəfsiz special roles (max 1 each).
+   *    Any disabled shortage overflows into Normal filler slots.
+   * 3. Picks up to `qetil` unique enabled Qətil special roles (max 1 each);
+   *    remaining Qətil slots fill with base `WEREWOLF`.
+   * 4. Picks up to adjusted `normal` unique enabled Normal special roles (max 1 each);
+   *    remaining Normal slots fill with base `VILLAGER`.
+   * 5. Cryptographically shuffles and returns the deck of length `playerCount`.
    */
-  static startGame(room: RoomState, customDeck?: RoleType[]): ValidationResult {
-    if (room.phase !== 'LOBBY') {
-      return { valid: false, error: 'Game has already started.' };
+  static buildRoleDeck(
+    playerCount: number,
+    enabledRoles: Record<RoleType, boolean>
+  ): RoleType[] {
+    const quota = FACTION_QUOTA_TABLE[playerCount];
+    if (!quota) {
+      throw new Error(
+        `Oyunçu sayı 4 ilə 16 arasında olmalıdır (daxil olan: ${playerCount}).`
+      );
     }
+
+    // 1. Tərəfsiz (Neutral) Pool — max 1 per enabled special role
+    const enabledTerefsiz = cryptoShuffle(
+      TEREFSIZ_ROLES.filter((role) => Boolean(enabledRoles[role]))
+    );
+    const pickedTerefsiz = enabledTerefsiz.slice(0, quota.terefsiz);
+    const terefsizShortage = quota.terefsiz - pickedTerefsiz.length;
+
+    const adjustedNormalQuota = quota.normal + terefsizShortage;
+
+    // 2. Qətil (Killer/Werewolf) Pool — max 1 per enabled special role, filled by WEREWOLF
+    const enabledQetilSpecials = cryptoShuffle(
+      QETIL_SPECIAL_ROLES.filter((role) => Boolean(enabledRoles[role]))
+    );
+    const pickedQetilSpecials = enabledQetilSpecials.slice(0, quota.qetil);
+    const wolfFillerCount = quota.qetil - pickedQetilSpecials.length;
+    const qetilDeck: RoleType[] = [
+      ...pickedQetilSpecials,
+      ...Array.from({ length: wolfFillerCount }, (): RoleType => 'WEREWOLF'),
+    ];
+
+    // 3. Normal (Village) Pool — max 1 per enabled special role, filled by VILLAGER
+    const enabledNormalSpecials = cryptoShuffle(
+      NORMAL_SPECIAL_ROLES.filter((role) => Boolean(enabledRoles[role]))
+    );
+    const pickedNormalSpecials = enabledNormalSpecials.slice(
+      0,
+      adjustedNormalQuota
+    );
+    const villagerFillerCount =
+      adjustedNormalQuota - pickedNormalSpecials.length;
+    const normalDeck: RoleType[] = [
+      ...pickedNormalSpecials,
+      ...Array.from({ length: villagerFillerCount }, (): RoleType => 'VILLAGER'),
+    ];
+
+    return cryptoShuffle([...normalDeck, ...qetilDeck, ...pickedTerefsiz]);
+  }
+
+  static startGame(room: RoomState): { valid: boolean; error?: string } {
+    if (room.phase !== 'LOBBY') {
+      return { valid: false, error: 'Oyun artıq davam edir.' };
+    }
+
     if (room.players.length < 4 || room.players.length > 16) {
       return {
         valid: false,
-        error: 'Campfire Wolves requires at least 4 players to start.',
+        error: 'Oyuna başlamaq üçün 4 ilə 16 arası oyunçu olmalıdır.',
       };
     }
 
-    const deck =
-      customDeck && customDeck.length === room.players.length
-        ? [...customDeck]
-        : this.buildRoleDeck(room.players.length, room.config.enabledRoles);
+    const deck = GameEngine.buildRoleDeck(
+      room.players.length,
+      room.config.enabledRoles
+    );
 
-    room.dayNumber = 1;
-    room.nightNumber = 0;
-    room.witchPotions = { healAvailable: true, poisonAvailable: true };
-    room.blackWolfInfectionAvailable = true;
-    room.thiefExtraRoles = null;
-    room.lovers = null;
-    room.crowCursedPlayerId = null;
-    room.villagePowersLost = false;
-    room.anyWolfHasDied = false;
-    room.lastNightCasualties = [];
-    room.lastNightInfectedId = null;
-    room.lastExecutedPlayer = null;
-    room.hunterRevenge = null;
-    room.winner = null;
-    room.winReason = null;
-    room.mvpAwards = [];
-    room.skipDiscussionVotes = [];
-    room.dayVotes = {};
-    room.nightActions = createEmptyNightActions();
-
-    // If Thief is in the deck, prepare two unused center role cards
-    if (deck.includes('THIEF')) {
-      const extraPool: RoleType[] = [
-        'SEER',
-        'GUARD',
-        'WITCH',
-        'HUNTER',
-        'FOX',
-        'CROW',
-        'WEREWOLF',
-        'VILLAGER',
-      ];
-      const c1 = extraPool[crypto.randomInt(0, extraPool.length)];
-      const c2 = extraPool[crypto.randomInt(0, extraPool.length)];
-      room.thiefExtraRoles = [c1, c2];
-    }
-
-    room.players.forEach((player, idx) => {
-      const assignedRole = deck[idx] ?? 'VILLAGER';
-      player.seatIndex = idx;
+    room.players.forEach((player, index) => {
+      const assignedRole = deck[index];
+      player.seatIndex = index;
       player.isAlive = true;
       player.role = assignedRole;
       player.originalRole = assignedRole;
@@ -308,16 +258,13 @@ export class GameEngine {
       player.deathReason = null;
       player.diedAtPhase = null;
       player.diedOnDay = null;
+      player.isSpeaking = false;
+      player.isTyping = false;
       player.knownRoles = {};
+      player.mysticWolfInspections = {};
       player.lastProtectedPlayerId = null;
       player.isPeeking = false;
       player.exposureLevel = 0;
-      player.elderLivesRemaining = assignedRole === 'ELDER' ? 2 : 1;
-      player.foxPowerLost = false;
-      player.lastFoxSniff = null;
-      player.loverPartnerId = null;
-      player.roleModelId = null;
-      player.isMayor = assignedRole === 'MAYOR';
       player.stats = {
         votesCast: 0,
         correctWolfVotes: 0,
@@ -327,309 +274,494 @@ export class GameEngine {
       };
     });
 
-    // Sisters recognize each other from the start
-    const sisters = room.players.filter((p) => p.role === 'SISTERS');
-    if (sisters.length > 1) {
-      for (const s1 of sisters) {
-        for (const s2 of sisters) {
-          if (s1.id !== s2.id) {
-            s1.knownRoles[s2.id] = 'SISTERS';
-          }
+    room.dayNumber = 1;
+    room.nightNumber = 1;
+    room.nightActions = createEmptyNightActions();
+    room.witchPotions = {
+      healAvailable: true,
+      poisonAvailable: true,
+    };
+    room.blackWolfInfectionAvailable = true;
+    room.arsonistDousedIds = [];
+    room.wolfAlertedThisNight = false;
+    room.wolfAliasMap = {};
+    room.lastNightCasualties = [];
+    room.lastNightInfectedId = null;
+    room.skipDiscussionVotes = [];
+    room.dayVotes = {};
+    room.lastExecutedPlayer = null;
+    room.hunterRevenge = null;
+    room.winner = null;
+    room.winReason = null;
+    room.mvpAwards = [];
+    room.messages = [];
+
+    room.phase = 'ROLE_REVEAL';
+    room.phaseEndsAt = Date.now() + room.config.timers.roleReveal * 1000;
+
+    GameEngine.appendSystemMessage(
+      room,
+      `🔥 Oyun başladı! ${room.players.length} oyunçu tonqal ətrafına toplaşdı. Gizli rollar paylandı.`
+    );
+
+    return { valid: true };
+  }
+
+  static enterNightPhase(room: RoomState): { gameEnded: boolean } {
+    const winCheck = WinConditionChecker.check(room);
+    if (winCheck.isGameOver && winCheck.winner) {
+      GameEngine.enterGameOver(room, winCheck.winner, winCheck.reason ?? '');
+      return { gameEnded: true };
+    }
+
+    // If Night 2 begins and an Angel survived Day 1 without winning, convert to VILLAGER
+    if (room.nightNumber >= 2) {
+      const convertedAngelIds =
+        WinConditionChecker.convertSurvivingAngelsAfterDay1(room);
+      for (const id of convertedAngelIds) {
+        const angel = room.players.find((p) => p.id === id);
+        if (angel) {
+          GameEngine.appendSystemMessage(
+            room,
+            `😇 ${angel.nickname} 1-ci gündə edam olunmadığı üçün adi Kəndliyə çevrildi.`
+          );
         }
       }
     }
 
-    room.phase = 'ROLE_REVEAL';
-    room.phaseEndsAt = Date.now() + room.config.timers.roleReveal * 1000;
-    this.appendSystemMessage(
-      room,
-      '🔥 Tonqal alovlanır! Gizli rol kartınızı yoxlayın — gecə başlayır!'
+    // Assign anonymized aliases ("Wolf 1", "Wolf 2", ...) for Little Girl peek chat
+    room.wolfAliasMap = {};
+    let wolfCounter = 1;
+    const sortedPlayers = [...room.players].sort(
+      (a, b) => a.seatIndex - b.seatIndex
     );
+    for (const player of sortedPlayers) {
+      player.isPeeking = false;
+      if (player.isAlive && isWolfPackRole(player.role)) {
+        room.wolfAliasMap[player.id] = `Wolf ${wolfCounter++}`;
+      }
+    }
 
-    return { valid: true };
-  }
-
-  /**
-   * Transitions room into NIGHT_PHASE.
-   */
-  static enterNightPhase(room: RoomState): void {
-    room.phase = 'NIGHT_PHASE';
-    room.nightNumber += 1;
     room.nightActions = createEmptyNightActions();
     room.wolfAlertedThisNight = false;
+    room.lastNightCasualties = [];
+    room.lastNightInfectedId = null;
+    room.skipDiscussionVotes = [];
+    room.dayVotes = {};
     room.lastExecutedPlayer = null;
     room.hunterRevenge = null;
 
-    const wolves = room.players.filter((p) => p.isAlive && isWolfPackRole(p.role));
-    const shuffledWolves = [...wolves].sort(() => Math.random() - 0.5);
-    room.wolfAliasMap = {};
-    shuffledWolves.forEach((w, idx) => {
-      room.wolfAliasMap[w.id] = `Wolf ${idx + 1}`;
-    });
-
-    for (const p of room.players) {
-      p.isPeeking = false;
-    }
-
+    room.phase = 'NIGHT_PHASE';
     room.phaseEndsAt = Date.now() + room.config.timers.nightPhase * 1000;
-    this.appendSystemMessage(
+
+    GameEngine.appendSystemMessage(
       room,
-      `🌙 Gecə ${room.nightNumber} düşür. Kənd yuxuya gedir, gecə rolları oyanır...`
+      `🌙 ${room.nightNumber}-ci Gecə düşdü. Kənd yatır, gizli rollar oyanır...`
     );
+
+    return { gameEnded: false };
   }
 
-  /**
-   * Handles a night action from an alive player.
-   */
   static submitNightAction(
     room: RoomState,
-    playerId: string,
+    actorId: string,
     payload: NightActionPayload
-  ): ValidationResult {
+  ): { valid: boolean; error?: string; allActed: boolean } {
     if (room.phase !== 'NIGHT_PHASE') {
-      return { valid: false, error: 'Night actions can only be used during Night Phase.' };
+      return {
+        valid: false,
+        error: 'Gecə qabiliyyətləri yalnız gecə mərhələsində işlədilir.',
+        allActed: false,
+      };
     }
-    const actor = room.players.find((p) => p.id === playerId);
+
+    const actor = room.players.find((p) => p.id === actorId);
     if (!actor || !actor.isAlive) {
-      return { valid: false, error: 'Only living players can act at night.' };
+      return {
+        valid: false,
+        error: 'Yalnız sağ olan oyunçular gecə hərəkəti edə bilər.',
+        allActed: false,
+      };
     }
 
     const strategy = getRoleStrategy(actor.role);
+    if (!strategy.canActAtNight(room, actor)) {
+      return {
+        valid: false,
+        error: 'Hazırda gecə aktiv qabiliyyətiniz mövcud deyil.',
+        allActed: false,
+      };
+    }
+
     const validation = strategy.validateNightAction(room, actor, payload);
     if (!validation.valid) {
-      return validation;
+      return {
+        valid: false,
+        error: validation.error,
+        allActed: false,
+      };
     }
 
     strategy.recordNightInput(room, actor, payload);
-    return { valid: true };
-  }
-
-  /**
-   * Toggles Little Girl peeking during NIGHT_PHASE.
-   */
-  static toggleLittleGirlPeek(
-    room: RoomState,
-    playerId: string,
-    peeking: boolean
-  ): ValidationResult {
-    if (room.phase !== 'NIGHT_PHASE') {
-      return { valid: false, error: 'Can only peek during the Night Phase.' };
-    }
-    const player = room.players.find((p) => p.id === playerId);
-    if (!player || !player.isAlive || player.role !== 'LITTLE_GIRL') {
-      return { valid: false, error: 'Only an alive Little Girl can peek.' };
-    }
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
-    player.isPeeking = peeking;
-    if (peeking) {
-      player.stats.abilitiesUsed += 1;
-    }
-    return { valid: true };
-  }
-
-  /**
-   * Called once per second during NIGHT_PHASE to update Little Girl exposure and roll for wolf alert.
-   */
-  static tickLittleGirlExposure(
-    room: RoomState,
-    randomFn: () => number = Math.random
-  ): { wolfAlertTriggered: boolean; exposureLevel: number } {
-    if (room.phase !== 'NIGHT_PHASE') {
-      return { wolfAlertTriggered: false, exposureLevel: 0 };
-    }
-    const littleGirl = room.players.find(
-      (p) => p.isAlive && p.role === 'LITTLE_GIRL' && p.isPeeking
-    );
-    if (!littleGirl) {
-      return { wolfAlertTriggered: false, exposureLevel: 0 };
-    }
-
-    littleGirl.exposureLevel = Math.min(100, littleGirl.exposureLevel + 7);
-
-    const alertProbability = 0.06 + (littleGirl.exposureLevel / 100) * 0.09;
-    let wolfAlertTriggered = false;
-
-    if (!room.wolfAlertedThisNight && randomFn() < alertProbability) {
-      room.wolfAlertedThisNight = true;
-      wolfAlertTriggered = true;
-    }
 
     return {
-      wolfAlertTriggered,
-      exposureLevel: littleGirl.exposureLevel,
+      valid: true,
+      allActed: GameEngine.haveAllRequiredNightActorsActed(room),
     };
   }
 
   /**
-   * Resolves NIGHT_PHASE and transitions to DAWN_SUMMARY.
+   * Checks whether all mandatory active night roles (including wolves, Seer, Guard,
+   * Mystic Wolf, Arsonist, and Witch if she still holds a potion) have submitted.
    */
-  static resolveNightAndEnterDawn(room: RoomState): void {
-    const resolution = NightResolver.resolve(room);
-    room.phase = 'DAWN_SUMMARY';
-    const revealDeadRoles = room.config.revealDeadRoles !== false;
+  private static haveAllRequiredNightActorsActed(room: RoomState): boolean {
+    const submitted = new Set(room.nightActions.submittedPlayerIds);
+    for (const player of room.players) {
+      if (!player.isAlive) continue;
 
-    if (resolution.casualties.length === 0) {
-      this.appendSystemMessage(
-        room,
-        `🌅 Gün ${room.dayNumber} səhəri açıldı. Sakit gecə keçdi — heç kim ölmədi!`
-      );
-    } else {
-      const summary = resolution.casualties
-        .map((c) => {
-          const rawPlayer = room.players.find((p) => p.id === c.playerId);
-          const roleDef = rawPlayer ? ROLE_DEFINITIONS[rawPlayer.role] : null;
-          return revealDeadRoles && roleDef
-            ? `${c.nickname} öldürüldü — Rolu: ${roleDef.icon} ${roleDef.nameAz} (${roleDef.nameEn})`
-            : `${c.nickname} öldürüldü — Rolu gizlidir 🔒`;
-        })
-        .join(' | ');
-      this.appendSystemMessage(room, `🌅 Səhər xəbəri: ${summary}`);
+      if (isWolfPackRole(player.role)) {
+        if (!room.nightActions.wolfVotes[player.id]) return false;
+        continue;
+      }
+
+      if (
+        player.role === 'SEER' ||
+        player.role === 'GUARD' ||
+        player.role === 'ARSONIST'
+      ) {
+        if (!submitted.has(player.id)) return false;
+        continue;
+      }
+
+      if (player.role === 'WITCH') {
+        const hasAnyPotion =
+          room.witchPotions.healAvailable || room.witchPotions.poisonAvailable;
+        if (hasAnyPotion && !submitted.has(player.id)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static toggleLittleGirlPeek(
+    room: RoomState,
+    playerId: string,
+    isPeeking: boolean
+  ): { valid: boolean; error?: string } {
+    if (room.phase !== 'NIGHT_PHASE') {
+      return {
+        valid: false,
+        error: 'Gizli izləmə yalnız gecə mərhələsində mümkündür.',
+      };
     }
 
-    if (room.crowCursedPlayerId) {
-      const cursed = room.players.find((p) => p.id === room.crowCursedPlayerId);
-      if (cursed && cursed.isAlive) {
-        this.appendSystemMessage(
+    const player = room.players.find((p) => p.id === playerId);
+    if (!player || !player.isAlive || player.role !== 'LITTLE_GIRL') {
+      return {
+        valid: false,
+        error: 'Yalnız sağ olan Kiçik Qız gizlicə baxa bilər.',
+      };
+    }
+
+    player.isPeeking = isPeeking;
+    return { valid: true };
+  }
+
+  static tickLittleGirlExposure(
+    room: RoomState,
+    rng: () => number = Math.random
+  ): { exposureLevel: number; wolfAlertTriggered: boolean } {
+    if (room.phase !== 'NIGHT_PHASE') {
+      return { exposureLevel: 0, wolfAlertTriggered: false };
+    }
+
+    const peekingGirl = room.players.find(
+      (p) => p.isAlive && p.role === 'LITTLE_GIRL' && p.isPeeking
+    );
+    if (!peekingGirl) {
+      return { exposureLevel: 0, wolfAlertTriggered: false };
+    }
+
+    peekingGirl.exposureLevel = Math.min(100, peekingGirl.exposureLevel + 15);
+    const detectionProbability = Math.min(
+      0.85,
+      (peekingGirl.exposureLevel / 100) * 0.5
+    );
+
+    const triggered =
+      !room.wolfAlertedThisNight &&
+      (rng() < detectionProbability || peekingGirl.exposureLevel >= 85);
+
+    if (triggered) {
+      room.wolfAlertedThisNight = true;
+      GameEngine.appendSystemMessage(
+        room,
+        '⚠️ Qətillər! Qaranlıqda kimsə canavar söhbətinizi gizlicə izləyir!',
+        'wolves'
+      );
+    }
+
+    return {
+      exposureLevel: peekingGirl.exposureLevel,
+      wolfAlertTriggered: triggered,
+    };
+  }
+
+  static resolveNightAndEnterDawn(room: RoomState): {
+    casualties: NightCasualty[];
+    hunterTriggered: boolean;
+    gameEnded: boolean;
+  } {
+    const context = NightResolver.resolve(room);
+
+    for (const player of room.players) {
+      player.isPeeking = false;
+      if (player.isAlive) {
+        player.stats.nightsSurvived += 1;
+      }
+    }
+
+    // Keep doused list synced to living players only
+    const aliveSet = new Set(
+      room.players.filter((p) => p.isAlive).map((p) => p.id)
+    );
+    room.arsonistDousedIds = room.arsonistDousedIds.filter((id) =>
+      aliveSet.has(id)
+    );
+
+    room.lastNightCasualties = context.casualties;
+    room.lastNightInfectedId = context.infectedPlayerId;
+
+    if (context.casualties.length === 0) {
+      GameEngine.appendSystemMessage(
+        room,
+        `🌅 ${room.dayNumber}-ci Gün açıldı — bu gecə kənddə heç kim ölmədi!`
+      );
+    } else {
+      for (const c of context.casualties) {
+        const rolePart =
+          room.config.revealDeadRoles && c.role !== 'UNKNOWN'
+            ? `Rolu: ${c.role}`
+            : 'Rolu gizlidir 🔒';
+        GameEngine.appendSystemMessage(
           room,
-          `🐦‍⬛ Qarğa lənəti: ${cursed.nickname} bu gün səsverməyə avtomatik +2 səslə başlayır!`
+          `💀 ${c.nickname} gecə həlak oldu — ${rolePart}.`
         );
       }
     }
 
-    // Check if an alive-at-night Hunter died during the night (and village powers are not lost)
-    const deadHunterCasualty = !room.villagePowersLost
-      ? resolution.casualties.find((c) => {
-          const p = room.players.find((pl) => pl.id === c.playerId);
-          return p?.role === 'HUNTER';
-        })
-      : undefined;
-    const hasLivingTargets = room.players.some((p) => p.isAlive);
+    const deadHunter = context.casualties
+      .map((c) => room.players.find((p) => p.id === c.playerId))
+      .find((p) => p && p.role === 'HUNTER');
 
-    if (deadHunterCasualty && hasLivingTargets) {
-      const durationMs = room.config.timers.hunterRevenge * 1000;
+    if (deadHunter) {
+      const endsAt = Date.now() + room.config.timers.hunterRevenge * 1000;
       room.hunterRevenge = {
-        hunterId: deadHunterCasualty.playerId,
+        hunterId: deadHunter.id,
         triggeredFromPhase: 'DAWN_SUMMARY',
-        endsAt: Date.now() + durationMs,
+        endsAt,
         resolved: false,
         shotTargetId: null,
       };
-      room.phaseEndsAt = Date.now() + durationMs;
-      this.appendSystemMessage(
+      room.phase = 'DAWN_SUMMARY';
+      room.phaseEndsAt = endsAt;
+      GameEngine.appendSystemMessage(
         room,
-        `🎯 ${deadHunterCasualty.nickname} Ovçu (Hunter) idi! Son intiqam atəşi üçün ${room.config.timers.hunterRevenge} saniyəsi var!`
+        `🏹 ${deadHunter.nickname} (Ovçu) ölərkən son gülləsini atmaq üçün 15 saniyə ərzində hədəf seçir!`
       );
-      return;
+      return {
+        casualties: context.casualties,
+        hunterTriggered: true,
+        gameEnded: false,
+      };
     }
 
-    const winCheck = WinConditionChecker.check(room);
-    if (winCheck.isGameOver) {
-      this.enterGameOver(room, winCheck.winner!, winCheck.reason!);
-      return;
-    }
-
+    room.phase = 'DAWN_SUMMARY';
     room.phaseEndsAt = Date.now() + room.config.timers.dawnSummary * 1000;
+
+    return {
+      casualties: context.casualties,
+      hunterTriggered: false,
+      gameEnded: false,
+    };
   }
 
-  /**
-   * Transitions from DAWN_SUMMARY -> DAY_DISCUSSION.
-   */
-  static enterDayDiscussion(room: RoomState): void {
+  static resolveHunterShot(
+    room: RoomState,
+    hunterId: string,
+    targetId: string | null
+  ): { valid: boolean; error?: string; gameEnded: boolean } {
+    if (!room.hunterRevenge || room.hunterRevenge.resolved) {
+      return {
+        valid: false,
+        error: 'Aktiv Ovçu intiqamı gözlənilmir.',
+        gameEnded: false,
+      };
+    }
+
+    if (room.hunterRevenge.hunterId !== hunterId) {
+      return {
+        valid: false,
+        error: 'Bu atışı yalnız ölən Ovçu edə bilər.',
+        gameEnded: false,
+      };
+    }
+
+    const hunter = room.players.find((p) => p.id === hunterId);
+    room.hunterRevenge.resolved = true;
+
+    if (targetId) {
+      const target = room.players.find((p) => p.id === targetId && p.isAlive);
+      if (!target) {
+        room.hunterRevenge.resolved = false;
+        return {
+          valid: false,
+          error: 'Atəş açmaq üçün canlı oyunçu seçməlisiniz.',
+          gameEnded: false,
+        };
+      }
+
+      room.hunterRevenge.shotTargetId = target.id;
+      if (hunter) {
+        hunter.stats.abilitiesUsed += 1;
+        hunter.stats.killsTriggered += 1;
+      }
+
+      const shotList: NightCasualty[] = [];
+      NightResolver.eliminatePlayer(
+        room,
+        target.id,
+        'HUNTER_SHOT',
+        room.phase,
+        shotList
+      );
+
+      room.arsonistDousedIds = room.arsonistDousedIds.filter((id) =>
+        room.players.some((p) => p.id === id && p.isAlive)
+      );
+
+      if (room.hunterRevenge.triggeredFromPhase === 'DAWN_SUMMARY') {
+        room.lastNightCasualties.push(...shotList);
+      }
+
+      const revealedInfo =
+        room.config.revealDeadRoles && target.revealedRole
+          ? `Rolu: ${target.revealedRole}`
+          : 'Rolu gizlidir 🔒';
+      GameEngine.appendSystemMessage(
+        room,
+        `💥 ${hunter?.nickname ?? 'Ovçu'} son nəfəsində ${target.nickname} adlı oyunçunu vurdu — ${revealedInfo}!`
+      );
+    } else {
+      GameEngine.appendSystemMessage(
+        room,
+        `🏹 ${hunter?.nickname ?? 'Ovçu'} vaxt bitdiyi üçün heç kimə atəş açmadı.`
+      );
+    }
+
     const winCheck = WinConditionChecker.check(room);
-    if (winCheck.isGameOver) {
-      this.enterGameOver(room, winCheck.winner!, winCheck.reason!);
-      return;
+    if (winCheck.isGameOver && winCheck.winner) {
+      GameEngine.enterGameOver(room, winCheck.winner, winCheck.reason ?? '');
+      return { valid: true, gameEnded: true };
+    }
+
+    room.hunterRevenge = null;
+    room.phaseEndsAt =
+      Date.now() +
+      (room.phase === 'DAWN_SUMMARY'
+        ? room.config.timers.dawnSummary
+        : room.config.timers.executionReveal) *
+        1000;
+
+    return { valid: true, gameEnded: false };
+  }
+
+  static enterDayDiscussion(room: RoomState): { gameEnded: boolean } {
+    const winCheck = WinConditionChecker.check(room);
+    if (winCheck.isGameOver && winCheck.winner) {
+      GameEngine.enterGameOver(room, winCheck.winner, winCheck.reason ?? '');
+      return { gameEnded: true };
     }
 
     room.phase = 'DAY_DISCUSSION';
-    room.hunterRevenge = null;
     room.skipDiscussionVotes = [];
-    room.dayVotes = {};
     room.phaseEndsAt = Date.now() + room.config.timers.dayDiscussion * 1000;
-    this.appendSystemMessage(
+
+    GameEngine.appendSystemMessage(
       room,
-      `☀️ Gün ${room.dayNumber} Müzakirəsi başladı. Tonqal ətrafında müzakirə edin!`
+      `☀️ ${room.dayNumber}-ci Günün müzakirəsi başladı. Şübhəliləri müzakirə edin!`
     );
+
+    return { gameEnded: false };
   }
 
-  /**
-   * Toggles a player's vote to end DAY_DISCUSSION early.
-   */
   static toggleSkipDiscussion(
     room: RoomState,
     playerId: string
-  ): {
-    valid: boolean;
-    transitionedToVoting: boolean;
-    error?: string;
-  } {
+  ): { valid: boolean; error?: string; transitionedToVoting: boolean } {
     if (room.phase !== 'DAY_DISCUSSION') {
       return {
         valid: false,
+        error: 'Yalnız müzakirə mərhələsində keçmək üçün səs verə bilərsiniz.',
         transitionedToVoting: false,
-        error: 'Can only skip discussion during Day Discussion phase.',
       };
     }
-    const player = room.players.find((p) => p.id === playerId);
-    if (!player || !player.isAlive) {
+
+    const player = room.players.find((p) => p.id === playerId && p.isAlive);
+    if (!player) {
       return {
         valid: false,
+        error: 'Yalnız sağ oyunçular müzakirəni tez bitirə bilər.',
         transitionedToVoting: false,
-        error: 'Only living players can vote to end discussion early.',
       };
     }
 
     const idx = room.skipDiscussionVotes.indexOf(playerId);
-    if (idx >= 0) {
-      room.skipDiscussionVotes.splice(idx, 1);
-    } else {
+    if (idx === -1) {
       room.skipDiscussionVotes.push(playerId);
+    } else {
+      room.skipDiscussionVotes.splice(idx, 1);
     }
 
     const aliveCount = room.players.filter((p) => p.isAlive).length;
-    const validVotes = room.skipDiscussionVotes.filter((id) =>
-      room.players.some((p) => p.id === id && p.isAlive)
-    );
-    room.skipDiscussionVotes = validVotes;
-
-    if (aliveCount > 0 && validVotes.length > aliveCount / 2) {
-      this.enterDayVoting(room);
+    if (room.skipDiscussionVotes.length > aliveCount / 2) {
+      GameEngine.enterDayVoting(room);
       return { valid: true, transitionedToVoting: true };
     }
 
     return { valid: true, transitionedToVoting: false };
   }
 
-  /**
-   * Transitions from DAY_DISCUSSION -> DAY_VOTING.
-   */
   static enterDayVoting(room: RoomState): void {
     room.phase = 'DAY_VOTING';
     room.dayVotes = {};
-    room.skipDiscussionVotes = [];
     room.phaseEndsAt = Date.now() + room.config.timers.dayVoting * 1000;
-    this.appendSystemMessage(
+
+    GameEngine.appendSystemMessage(
       room,
-      `⚖️ Səsvermə başladı! Şübhəli bildiyiniz oyunçuya səs verin və ya Səsi Keç (Skip) seçin.`
+      `🗳️ Səsvermə başladı! Kimi edam edəcəksiniz? (${room.config.timers.dayVoting}s)`
     );
   }
 
-  /**
-   * Casts or updates an alive player's vote during DAY_VOTING.
-   */
   static castDayVote(
     room: RoomState,
     voterId: string,
     targetId: string | 'SKIP' | null
-  ): ValidationResult {
+  ): { valid: boolean; error?: string } {
     if (room.phase !== 'DAY_VOTING') {
-      return { valid: false, error: 'Voting is only open during the Day Voting phase.' };
+      return {
+        valid: false,
+        error: 'Səsvermə yalnız səsvermə mərhələsində mümkündür.',
+      };
     }
-    const voter = room.players.find((p) => p.id === voterId);
-    if (!voter || !voter.isAlive) {
-      return { valid: false, error: 'Only living players can cast votes.' };
+
+    const voter = room.players.find((p) => p.id === voterId && p.isAlive);
+    if (!voter) {
+      return {
+        valid: false,
+        error: 'Yalnız sağ olan oyunçular səs verə bilər.',
+      };
     }
 
     if (targetId === null) {
@@ -638,302 +770,191 @@ export class GameEngine {
     }
 
     if (targetId !== 'SKIP') {
-      const target = room.players.find((p) => p.id === targetId);
-      if (!target || !target.isAlive) {
-        return { valid: false, error: 'Cannot vote for a dead or non-existent player.' };
+      const target = room.players.find((p) => p.id === targetId && p.isAlive);
+      if (!target) {
+        return {
+          valid: false,
+          error: 'Yalnız sağ olan oyunçuya səs verə bilərsiniz.',
+        };
+      }
+      if (target.id === voter.id) {
+        return { valid: false, error: 'Özünüzə səs verə bilməzsiniz.' };
       }
     }
 
+    const isFirstVoteThisDay = !(voterId in room.dayVotes);
     room.dayVotes[voterId] = targetId;
+
+    if (isFirstVoteThisDay && targetId !== 'SKIP') {
+      voter.stats.votesCast += 1;
+      const target = room.players.find((p) => p.id === targetId);
+      if (target && isWolfPackRole(target.role)) {
+        voter.stats.correctWolfVotes += 1;
+      }
+    }
+
     return { valid: true };
   }
 
-  /**
-   * Resolves DAY_VOTING and transitions to EXECUTION_REVEAL.
-   * Incorporates Crow's +2 automatic curse votes and Mayor's 2x vote weight + tie-breaking!
-   */
-  static resolveDayVotesAndEnterExecution(room: RoomState): void {
-    room.phase = 'EXECUTION_REVEAL';
-    room.lastExecutedPlayer = null;
-    const revealDeadRoles = room.config.revealDeadRoles !== false;
+  static resolveDayVotesAndEnterExecution(room: RoomState): {
+    executedPlayer: NightCasualty | null;
+    hunterTriggered: boolean;
+    gameEnded: boolean;
+  } {
+    const tally = new Map<string, number>();
 
-    const voteCounts = new Map<string, number>();
-    let skipCount = 0;
-    let mayorChosenTargetId: string | null = null;
-
-    // 1. Apply Crow's +2 automatic curse votes if the cursed player is alive
-    if (room.crowCursedPlayerId) {
-      const cursed = room.players.find(
-        (p) => p.id === room.crowCursedPlayerId && p.isAlive
-      );
-      if (cursed) {
-        voteCounts.set(cursed.id, 2);
-      }
-    }
-
-    // 2. Tally player votes (Mayor's vote counts as 2!)
     for (const [voterId, targetId] of Object.entries(room.dayVotes)) {
       const voter = room.players.find((p) => p.id === voterId && p.isAlive);
-      if (!voter) continue;
-
-      voter.stats.votesCast += 1;
-      const weight =
-        !room.villagePowersLost && (voter.isMayor || voter.role === 'MAYOR')
-          ? 2
-          : 1;
-
-      if (targetId === 'SKIP') {
-        skipCount += weight;
-        continue;
-      }
-
+      if (!voter || targetId === 'SKIP') continue;
       const target = room.players.find((p) => p.id === targetId && p.isAlive);
       if (!target) continue;
 
-      if (isWolfPackRole(target.role)) {
-        voter.stats.correctWolfVotes += 1;
-      }
-
-      if (weight === 2) {
-        mayorChosenTargetId = target.id;
-      }
-
-      voteCounts.set(target.id, (voteCounts.get(target.id) ?? 0) + weight);
+      tally.set(target.id, (tally.get(target.id) ?? 0) + 1);
     }
 
-    // Clear Crow curse after tallying
-    room.crowCursedPlayerId = null;
+    let topCandidateId: string | null = null;
+    let topVotes = 0;
+    let tie = false;
 
-    let highestVotes = 0;
-    let topCandidates: string[] = [];
-
-    for (const [candidateId, count] of voteCounts.entries()) {
-      if (count > highestVotes) {
-        highestVotes = count;
-        topCandidates = [candidateId];
-      } else if (count === highestVotes) {
-        topCandidates.push(candidateId);
+    for (const [candidateId, count] of tally.entries()) {
+      if (count > topVotes) {
+        topVotes = count;
+        topCandidateId = candidateId;
+        tie = false;
+      } else if (count === topVotes && count > 0) {
+        tie = true;
       }
     }
 
-    // If tied between candidates and Mayor voted for one of the tied top candidates, Mayor breaks the tie!
-    if (
-      topCandidates.length > 1 &&
-      mayorChosenTargetId &&
-      topCandidates.includes(mayorChosenTargetId)
-    ) {
-      topCandidates = [mayorChosenTargetId];
-    }
+    room.lastExecutedPlayer = null;
+    room.phase = 'EXECUTION_REVEAL';
 
-    const isTie =
-      topCandidates.length !== 1 ||
-      highestVotes === 0 ||
-      skipCount >= highestVotes;
-
-    if (isTie) {
-      this.appendSystemMessage(
+    if (!topCandidateId || tie || topVotes === 0) {
+      room.phaseEndsAt =
+        Date.now() + room.config.timers.executionReveal * 1000;
+      GameEngine.appendSystemMessage(
         room,
-        '⚖️ Səsvermə bərabərliklə (və ya səsi keçməklə) nəticələndi. Bu gün heç kim edam edilmədi!'
+        tie
+          ? '⚖️ Səslər bərabər bölündü — bu gün heç kim edam edilmədi.'
+          : '🕊️ Kənd bu gün heç kimi edam etməmək qərarına gəldi.'
       );
-    } else {
-      const executedId = topCandidates[0];
-      const executionCasualties: RoomState['lastNightCasualties'] = [];
-      const executedPlayer = NightResolver.eliminatePlayer(
-        room,
-        executedId,
-        'EXECUTION',
-        'EXECUTION_REVEAL',
-        executionCasualties
-      );
+      return {
+        executedPlayer: null,
+        hunterTriggered: false,
+        gameEnded: false,
+      };
+    }
 
-      if (executedPlayer) {
-        const roleDef = ROLE_DEFINITIONS[executedPlayer.role];
-        room.lastExecutedPlayer = executionCasualties[0] ?? null;
+    const tempCasualties: NightCasualty[] = [];
+    const executed = NightResolver.eliminatePlayer(
+      room,
+      topCandidateId,
+      'EXECUTION',
+      'EXECUTION_REVEAL',
+      tempCasualties
+    );
 
-        if (revealDeadRoles) {
-          this.appendSystemMessage(
-            room,
-            `⚖️ ${executedPlayer.nickname} səsvermə ilə edam edildi — Rolu: ${roleDef.icon} ${roleDef.nameAz} (${roleDef.nameEn})!`
-          );
-        } else {
-          this.appendSystemMessage(
-            room,
-            `⚖️ ${executedPlayer.nickname} səsvermə ilə edam edildi — Rolu gizlidir 🔒`
-          );
-        }
+    if (!executed || tempCasualties.length === 0) {
+      room.phaseEndsAt =
+        Date.now() + room.config.timers.executionReveal * 1000;
+      return {
+        executedPlayer: null,
+        hunterTriggered: false,
+        gameEnded: false,
+      };
+    }
 
-        if (executedPlayer.role === 'ELDER') {
-          this.appendSystemMessage(
-            room,
-            '⚠️ Ağsaqqal (Elder) kənd tərəfindən edam edildi! Kəndlilər bütün xüsusi gecə güclərini itirdilər!'
-          );
-        }
+    room.lastExecutedPlayer = tempCasualties[0];
+    room.arsonistDousedIds = room.arsonistDousedIds.filter((id) =>
+      room.players.some((p) => p.id === id && p.isAlive)
+    );
 
-        // Check Jester (any day) or Angel (Day 1) instant win BEFORE anything else
-        const executionWinCheck = WinConditionChecker.check(room, {
-          justExecutedPlayerId: executedPlayer.id,
-        });
-        if (
-          executionWinCheck.isGameOver &&
-          (executionWinCheck.winner === 'JESTER' ||
-            executionWinCheck.winner === 'ANGEL')
-        ) {
-          this.enterGameOver(
-            room,
-            executionWinCheck.winner,
-            executionWinCheck.reason!
-          );
-          return;
-        }
+    const rolePart =
+      room.config.revealDeadRoles && room.lastExecutedPlayer.role !== 'UNKNOWN'
+        ? `Rolu: ${room.lastExecutedPlayer.role}`
+        : 'Rolu gizlidir 🔒';
+    GameEngine.appendSystemMessage(
+      room,
+      `🔨 ${executed.nickname} səsvermə ilə edam edildi (${topVotes} səs) — ${rolePart}.`
+    );
 
-        // Process Lovers Heartbreak & Wild Child Transformation
-        NightResolver.processPostDeathEffects(
+    // 1. Check Day 1 Angel immediate solo win BEFORE anything else
+    if (executed.role === 'ANGEL' && room.dayNumber === 1) {
+      const angelWin = WinConditionChecker.check(room, {
+        justExecutedPlayerId: executed.id,
+      });
+      if (angelWin.isGameOver && angelWin.winner) {
+        GameEngine.enterGameOver(
           room,
-          'EXECUTION_REVEAL',
-          executionCasualties
+          angelWin.winner,
+          angelWin.reason ?? ''
         );
-
-        // If Mayor died, pass Mayor badge to a living player if none exists
-        if (executedPlayer.isMayor || executedPlayer.role === 'MAYOR') {
-          executedPlayer.isMayor = false;
-          const nextSuccessor = room.players.find((p) => p.isAlive);
-          if (nextSuccessor) {
-            nextSuccessor.isMayor = true;
-            this.appendSystemMessage(
-              room,
-              `🎖️ Şerif nişanı ${nextSuccessor.nickname} oyunçusuna ötürüldü!`
-            );
-          }
-        }
-
-        // Check if executed player is the Hunter (and village powers are not lost)
-        const hasLivingTargets = room.players.some((p) => p.isAlive);
-        if (
-          executedPlayer.role === 'HUNTER' &&
-          !room.villagePowersLost &&
-          hasLivingTargets
-        ) {
-          const durationMs = room.config.timers.hunterRevenge * 1000;
-          room.hunterRevenge = {
-            hunterId: executedPlayer.id,
-            triggeredFromPhase: 'EXECUTION_REVEAL',
-            endsAt: Date.now() + durationMs,
-            resolved: false,
-            shotTargetId: null,
-          };
-          room.phaseEndsAt = Date.now() + durationMs;
-          this.appendSystemMessage(
-            room,
-            `🎯 ${executedPlayer.nickname} Ovçu (Hunter) idi! Son intiqam atəşi üçün ${room.config.timers.hunterRevenge} saniyəsi var!`
-          );
-          return;
-        }
+        return {
+          executedPlayer: room.lastExecutedPlayer,
+          hunterTriggered: false,
+          gameEnded: true,
+        };
       }
     }
 
-    if (room.dayNumber === 1) {
-      WinConditionChecker.convertSurvivingAngelsAfterDay1(room);
+    // 2. Check dying Hunter 15-second revenge shot
+    if (executed.role === 'HUNTER') {
+      const endsAt = Date.now() + room.config.timers.hunterRevenge * 1000;
+      room.hunterRevenge = {
+        hunterId: executed.id,
+        triggeredFromPhase: 'EXECUTION_REVEAL',
+        endsAt,
+        resolved: false,
+        shotTargetId: null,
+      };
+      room.phaseEndsAt = endsAt;
+      GameEngine.appendSystemMessage(
+        room,
+        `🏹 ${executed.nickname} (Ovçu) edam edilərkən son gülləsini atmaq üçün hədəf seçir!`
+      );
+      return {
+        executedPlayer: room.lastExecutedPlayer,
+        hunterTriggered: true,
+        gameEnded: false,
+      };
     }
 
+    // 3. Check standard win conditions
     const winCheck = WinConditionChecker.check(room);
-    if (winCheck.isGameOver) {
-      this.enterGameOver(room, winCheck.winner!, winCheck.reason!);
-      return;
+    if (winCheck.isGameOver && winCheck.winner) {
+      GameEngine.enterGameOver(room, winCheck.winner, winCheck.reason ?? '');
+      return {
+        executedPlayer: room.lastExecutedPlayer,
+        hunterTriggered: false,
+        gameEnded: true,
+      };
     }
 
     room.phaseEndsAt = Date.now() + room.config.timers.executionReveal * 1000;
+    return {
+      executedPlayer: room.lastExecutedPlayer,
+      hunterTriggered: false,
+      gameEnded: false,
+    };
   }
 
-  /**
-   * Resolves the dying Hunter's revenge shot.
-   */
-  static resolveHunterShot(
-    room: RoomState,
-    hunterId: string,
-    targetId: string
-  ): ValidationResult {
-    if (!room.hunterRevenge || room.hunterRevenge.resolved) {
-      return { valid: false, error: 'No active Hunter revenge shot is pending.' };
-    }
-    if (room.hunterRevenge.hunterId !== hunterId) {
-      return { valid: false, error: 'Only the dying Hunter can take this shot.' };
-    }
-    const hunter = room.players.find((p) => p.id === hunterId);
-    const target = room.players.find((p) => p.id === targetId);
-    if (!target || !target.isAlive) {
-      return { valid: false, error: 'Hunter must target a living player.' };
-    }
-
-    const shotCasualties: RoomState['lastNightCasualties'] = [];
-    NightResolver.eliminatePlayer(
-      room,
-      target.id,
-      'HUNTER_SHOT',
-      room.phase,
-      shotCasualties
-    );
-    NightResolver.processPostDeathEffects(room, room.phase, shotCasualties);
-
-    if (hunter) {
-      hunter.stats.abilitiesUsed += 1;
-      hunter.stats.killsTriggered += 1;
-    }
-
-    if (room.hunterRevenge.triggeredFromPhase === 'DAWN_SUMMARY') {
-      room.lastNightCasualties.push(...shotCasualties);
-    } else if (shotCasualties[0]) {
-      room.lastExecutedPlayer = shotCasualties[0];
-    }
-
-    room.hunterRevenge.resolved = true;
-    room.hunterRevenge.shotTargetId = target.id;
-
-    const revealDeadRoles = room.config.revealDeadRoles !== false;
-    const roleDef = ROLE_DEFINITIONS[target.role];
-    this.appendSystemMessage(
-      room,
-      revealDeadRoles
-        ? `💥 BANG! Ovçu ${hunter?.nickname ?? ''} son nəfəsində ${target.nickname} (${roleDef.icon} ${roleDef.nameAz}) oyunçusunu vurdu!`
-        : `💥 BANG! Ovçu ${hunter?.nickname ?? ''} son nəfəsində ${target.nickname} oyunçusunu vurdu — Rolu gizlidir 🔒`
-    );
-
-    if (
-      room.hunterRevenge.triggeredFromPhase === 'EXECUTION_REVEAL' &&
-      room.dayNumber === 1
-    ) {
-      WinConditionChecker.convertSurvivingAngelsAfterDay1(room);
-    }
-
+  static completeExecutionAndLoopToNight(room: RoomState): {
+    gameEnded: boolean;
+  } {
     const winCheck = WinConditionChecker.check(room);
-    if (winCheck.isGameOver) {
-      this.enterGameOver(room, winCheck.winner!, winCheck.reason!);
+    if (winCheck.isGameOver && winCheck.winner) {
+      GameEngine.enterGameOver(room, winCheck.winner, winCheck.reason ?? '');
+      return { gameEnded: true };
     }
 
-    return { valid: true };
-  }
-
-  /**
-   * Advances the room after EXECUTION_REVEAL finishes into the next NIGHT_PHASE.
-   */
-  static completeExecutionAndLoopToNight(room: RoomState): void {
-    if (room.dayNumber === 1) {
-      WinConditionChecker.convertSurvivingAngelsAfterDay1(room);
-    }
-    const winCheck = WinConditionChecker.check(room);
-    if (winCheck.isGameOver) {
-      this.enterGameOver(room, winCheck.winner!, winCheck.reason!);
-      return;
-    }
     room.dayNumber += 1;
-    this.enterNightPhase(room);
+    room.nightNumber += 1;
+    return GameEngine.enterNightPhase(room);
   }
 
-  /**
-   * Enters GAME_OVER, reveals all roles on the Victory Screen, and calculates MVP awards.
-   */
   static enterGameOver(
     room: RoomState,
-    winner: NonNullable<RoomState['winner']>,
+    winner: WinningFaction,
     reason: string
   ): void {
     room.phase = 'GAME_OVER';
@@ -941,19 +962,16 @@ export class GameEngine {
     room.hunterRevenge = null;
     room.winner = winner;
     room.winReason = reason;
+    room.mvpAwards = WinConditionChecker.computeMvpAwards(room);
 
+    // Reveal everyone's role on Game Over
     for (const player of room.players) {
       player.revealedRole = player.role;
-      player.isPeeking = false;
     }
 
-    room.mvpAwards = WinConditionChecker.computeMvpAwards(room);
-    this.appendSystemMessage(room, `🏆 OYUN BİTDİ — ${reason}`);
+    GameEngine.appendSystemMessage(room, `🏆 OYUN BİTDİ: ${reason}`);
   }
 
-  /**
-   * Resets a finished room back to LOBBY while keeping all connected players in their seats.
-   */
   static resetToLobby(room: RoomState): void {
     room.phase = 'LOBBY';
     room.dayNumber = 0;
@@ -962,12 +980,9 @@ export class GameEngine {
     room.nightActions = createEmptyNightActions();
     room.witchPotions = { healAvailable: true, poisonAvailable: true };
     room.blackWolfInfectionAvailable = true;
+    room.arsonistDousedIds = [];
     room.wolfAlertedThisNight = false;
-    room.thiefExtraRoles = null;
-    room.lovers = null;
-    room.crowCursedPlayerId = null;
-    room.villagePowersLost = false;
-    room.anyWolfHasDied = false;
+    room.wolfAliasMap = {};
     room.lastNightCasualties = [];
     room.lastNightInfectedId = null;
     room.skipDiscussionVotes = [];
@@ -987,43 +1002,41 @@ export class GameEngine {
       player.deathReason = null;
       player.diedAtPhase = null;
       player.diedOnDay = null;
+      player.isSpeaking = false;
+      player.isTyping = false;
       player.knownRoles = {};
+      player.mysticWolfInspections = {};
       player.lastProtectedPlayerId = null;
       player.isPeeking = false;
       player.exposureLevel = 0;
-      player.elderLivesRemaining = 1;
-      player.foxPowerLost = false;
-      player.lastFoxSniff = null;
-      player.loverPartnerId = null;
-      player.roleModelId = null;
-      player.isMayor = false;
     }
 
-    this.appendSystemMessage(
+    GameEngine.appendSystemMessage(
       room,
-      '🔥 Tonqal Lobbisinə qayıdıldı. Rolları tənzimləyin və yeni oyuna başlayın!'
+      '🔥 Oyunçular yeni matç üçün lobbiyə qayıtdı!'
     );
   }
 
-  static appendSystemMessage(room: RoomState, content: string): ChatMessage {
+  static appendSystemMessage(
+    room: RoomState,
+    content: string,
+    channel: ChatChannel = 'system'
+  ): ChatMessage {
     const msg: ChatMessage = {
       id: crypto.randomUUID(),
       senderId: 'SYSTEM',
-      senderName: 'Campfire Narrator',
-      senderColor: '#f59e0b',
-      channel: 'system',
-      channelBadge: '🔥 Sistem',
+      senderName:
+        channel === 'wolves' ? 'Qətil Səsi' : 'Tonqal Bələdçisi',
+      senderColor: channel === 'wolves' ? '#ef4444' : '#f59e0b',
+      channel,
+      channelBadge: CHANNEL_BADGES[channel],
       content,
       timestamp: Date.now(),
     };
     room.messages.push(msg);
-    if (room.messages.length > 200) {
-      room.messages.shift();
+    if (room.messages.length > 250) {
+      room.messages.splice(0, room.messages.length - 250);
     }
     return msg;
-  }
-
-  static getAllRoleKeys(): RoleType[] {
-    return ALL_22_ROLES;
   }
 }

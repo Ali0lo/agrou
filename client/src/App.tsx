@@ -199,7 +199,8 @@ export const App: React.FC = () => {
 
   const handleUpdateConfig = (update: {
     timers?: Partial<PhaseTimers>;
-    enabledRoles?: Partial<Record<RoleType, number>>;
+    enabledRoles?: Partial<Record<RoleType, boolean>>;
+    allowWebRTC?: boolean;
     revealDeadRoles?: boolean;
   }) => {
     socketRef.current?.emit('lobby:updateConfig', update);
@@ -440,7 +441,7 @@ export const App: React.FC = () => {
                 Gather Around the Campfire
               </h2>
               <p className="text-xs text-slate-400 leading-relaxed">
-                4 to 12 players • Secret roles, midnight plots, and daytime
+                4 to 16 players • Secret roles, midnight plots, and daytime
                 tribunals inspired by <em>Agrou</em>.
               </p>
             </div>

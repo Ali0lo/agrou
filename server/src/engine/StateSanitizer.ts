@@ -17,15 +17,9 @@ import {
  *
  * Strips hidden roles from other players, sending `role: "UNKNOWN"` unless:
  * 1. The target is the requesting player themselves.
- * 2. Both players are Werewolves (Werewolves can see each other; White Wolf appears as WEREWOLF to fellow wolves).
- * 3. Both players are Sisters (`SISTERS`).
- * 4. The game has ended (`phase === 'GAME_OVER'`).
- * 5. The requesting player is dead (Spectator mode).
- *
- * Also respects `roomState.config.revealDeadRoles`:
- * - When `revealDeadRoles === true`, dead players' `revealedRole` is visible.
- * - When `revealDeadRoles === false`, dead players' `revealedRole` is hidden (`null`) from living players
- *   (unless the viewer inspected them via Medium/Seer `knownRoles`, is dead, or `phase === 'GAME_OVER'`).
+ * 2. Both players are on the Qətil (Werewolf) team (except White Wolf appears as standard WEREWOLF to teammates).
+ * 3. The game has ended (`phase === 'GAME_OVER'`).
+ * 4. The requesting player is dead (Spectator mode).
  */
 export function sanitizeStateForPlayer(
   roomState: RoomState,
@@ -36,15 +30,12 @@ export function sanitizeStateForPlayer(
   const isViewerDeadSpectator =
     viewer !== null && !viewer.isAlive && roomState.phase !== 'LOBBY';
   const isViewerWolf = viewer !== null && isWolfPackRole(viewer.role);
-  const isViewerSister = viewer !== null && viewer.role === 'SISTERS';
   const revealDeadRoles = roomState.config.revealDeadRoles !== false;
 
   const sanitizedPlayers: SanitizedPlayerState[] = roomState.players.map(
     (target) => {
       const isSelf = viewer !== null && target.id === viewer.id;
       const bothAreWolves = isViewerWolf && isWolfPackRole(target.role);
-      const bothAreSisters = isViewerSister && target.role === 'SISTERS';
-      const knownByViewer = viewer?.knownRoles[target.id] ?? null;
 
       let visibleRole: VisibleRoleType = 'UNKNOWN';
       let visibleFaction: VisibleFaction = 'UNKNOWN';
@@ -53,22 +44,15 @@ export function sanitizeStateForPlayer(
         visibleRole = target.role;
         visibleFaction = target.faction;
       } else if (bothAreWolves) {
+        // White Wolf appears as a standard Werewolf to fellow Qətil teammates
         visibleRole = target.role === 'WHITE_WOLF' ? 'WEREWOLF' : target.role;
         visibleFaction = 'WEREWOLF';
-      } else if (bothAreSisters) {
-        visibleRole = 'SISTERS';
-        visibleFaction = 'VILLAGE';
       }
 
       let revealedRole: SanitizedPlayerState['revealedRole'] = null;
       if (!target.isAlive || isGameOver) {
         if (isGameOver || isViewerDeadSpectator || revealDeadRoles) {
           revealedRole = target.revealedRole ?? target.role;
-        } else if (knownByViewer) {
-          // Medium or Seer who inspected this dead player sees their role even when revealDeadRoles is OFF
-          revealedRole = knownByViewer;
-        } else {
-          revealedRole = null;
         }
       }
 
@@ -88,18 +72,14 @@ export function sanitizeStateForPlayer(
         deathReason: target.deathReason,
         isSpeaking: target.isSpeaking,
         isTyping: target.isTyping,
-        isMayor: target.isMayor || target.role === 'MAYOR',
-        isCrowCursed: roomState.crowCursedPlayerId === target.id,
-        isLoverWithSelf: Boolean(
-          viewer &&
-            viewer.loverPartnerId &&
-            (target.id === viewer.loverPartnerId || target.id === viewer.id)
-        ),
       };
     }
   );
 
   const consensusWolfTargetId = computeConsensusWolfTarget(roomState);
+  const aliveDousedIds = roomState.arsonistDousedIds.filter((id) =>
+    roomState.players.some((p) => p.id === id && p.isAlive)
+  );
 
   let selfSecret: SanitizedSelfSecretState | null = null;
   if (viewer) {
@@ -114,38 +94,26 @@ export function sanitizeStateForPlayer(
         const t = roomState.players.find(
           (p) => p.id === roomState.nightActions.guardTargetId
         );
-        nightActionSummary = t ? `Qorunur (Protecting): ${t.nickname}` : null;
+        nightActionSummary = t ? `Qorunur: ${t.nickname}` : null;
       } else if (viewer.role === 'SEER' && roomState.nightActions.seerTargetId) {
         const t = roomState.players.find(
           (p) => p.id === roomState.nightActions.seerTargetId
         );
         nightActionSummary = t
-          ? `Yoxlanıldı (Inspected): ${t.nickname} (${t.role})`
+          ? `Yoxlanıldı: ${t.nickname} (${t.role})`
           : null;
       } else if (
-        viewer.role === 'WOLF_SEER' &&
-        roomState.nightActions.wolfSeerTargetId
+        viewer.role === 'MYSTIC_WOLF' &&
+        roomState.nightActions.mysticWolfTargetId
       ) {
-        const t = roomState.players.find(
-          (p) => p.id === roomState.nightActions.wolfSeerTargetId
-        );
-        nightActionSummary = t
-          ? `Görücü Canavar yoxladı: ${t.nickname} (${t.role})`
-          : null;
-      } else if (
-        viewer.role === 'MEDIUM' &&
-        roomState.nightActions.mediumTargetId
-      ) {
-        const t = roomState.players.find(
-          (p) => p.id === roomState.nightActions.mediumTargetId
-        );
-        nightActionSummary = t
-          ? `Ruh yoxlanıldı: ${t.nickname} (${t.role})`
-          : null;
-      } else if (viewer.role === 'FOX' && viewer.lastFoxSniff) {
-        nightActionSummary = viewer.lastFoxSniff.hasWolf
-          ? '🦊 Qoxu nəticəsi: Bu 3 nəfərdən ən azı biri CANAVARDIR! 🐺'
-          : '🦊 Qoxu nəticəsi: Bu 3 nəfər təmizdir (Tülkü gücünü itirdi).';
+        const targetId = roomState.nightActions.mysticWolfTargetId;
+        const t = roomState.players.find((p) => p.id === targetId);
+        const hasPower = viewer.mysticWolfInspections[targetId];
+        if (t && typeof hasPower === 'boolean') {
+          nightActionSummary = hasPower
+            ? `👁️‍🗨️ ${t.nickname}: ✨ Xüsusi gücü VAR (Normal/Tərəfsiz)!`
+            : `👁️‍🗨️ ${t.nickname}: 🌾 Sadə Kəndlidir (Xüsusi gücü yoxdur).`;
+        }
       } else if (viewer.role === 'WITCH') {
         const parts: string[] = [];
         if (roomState.nightActions.witchHealUsedThisNight) {
@@ -164,14 +132,6 @@ export function sanitizeStateForPlayer(
       ) {
         nightActionSummary = 'Bu gecə sürünün hədəfi yoluxdurulur!';
       } else if (
-        viewer.role === 'BIG_BAD_WOLF' &&
-        roomState.nightActions.bigBadWolfTargetId
-      ) {
-        const t = roomState.players.find(
-          (p) => p.id === roomState.nightActions.bigBadWolfTargetId
-        );
-        nightActionSummary = t ? `Əlavə hücum: ${t.nickname}` : null;
-      } else if (
         viewer.role === 'WHITE_WOLF' &&
         roomState.nightActions.whiteWolfTargetId
       ) {
@@ -179,27 +139,18 @@ export function sanitizeStateForPlayer(
           (p) => p.id === roomState.nightActions.whiteWolfTargetId
         );
         nightActionSummary = t ? `Xəyanət hədəfi: ${t.nickname}` : null;
-      } else if (viewer.role === 'CROW' && roomState.nightActions.crowTargetId) {
-        const t = roomState.players.find(
-          (p) => p.id === roomState.nightActions.crowTargetId
-        );
-        nightActionSummary = t ? `Lənətləndi (+2 səs): ${t.nickname}` : null;
-      } else if (
-        viewer.role === 'SERIAL_KILLER' &&
-        roomState.nightActions.serialKillerTargetId
-      ) {
-        const t = roomState.players.find(
-          (p) => p.id === roomState.nightActions.serialKillerTargetId
-        );
-        nightActionSummary = t ? `Qatil hədəfi: ${t.nickname}` : null;
-      } else if (viewer.role === 'CUPID' && roomState.lovers) {
-        const p1 = roomState.players.find((p) => p.id === roomState.lovers?.[0]);
-        const p2 = roomState.players.find((p) => p.id === roomState.lovers?.[1]);
-        nightActionSummary =
-          p1 && p2 ? `Aşiqlər: ${p1.nickname} 💘 ${p2.nickname}` : null;
-      } else if (viewer.role === 'WILD_CHILD' && viewer.roleModelId) {
-        const t = roomState.players.find((p) => p.id === viewer.roleModelId);
-        nightActionSummary = t ? `Kumir (Role Model): ${t.nickname}` : null;
+      } else if (viewer.role === 'ARSONIST') {
+        if (roomState.nightActions.arsonistActionThisNight === 'IGNITE') {
+          nightActionSummary = `🔥 Alovlandır: ${aliveDousedIds.length} benzinli oyunçu yandırılacaq!`;
+        } else if (
+          roomState.nightActions.arsonistActionThisNight === 'DOUSE' &&
+          roomState.nightActions.arsonistTargetId
+        ) {
+          const t = roomState.players.find(
+            (p) => p.id === roomState.nightActions.arsonistTargetId
+          );
+          nightActionSummary = t ? `🛢️ Benzin tökülür: ${t.nickname}` : null;
+        }
       }
     }
 
@@ -209,6 +160,14 @@ export function sanitizeStateForPlayer(
       originalRole: viewer.originalRole,
       faction: viewer.faction,
       knownRoles: { ...viewer.knownRoles },
+      mysticWolfInspections:
+        viewer.role === 'MYSTIC_WOLF'
+          ? { ...viewer.mysticWolfInspections }
+          : {},
+      arsonistDousedTargetIds:
+        viewer.role === 'ARSONIST' || isGameOver || isViewerDeadSpectator
+          ? aliveDousedIds
+          : [],
       lastProtectedPlayerId:
         viewer.role === 'GUARD' ? viewer.lastProtectedPlayerId : null,
       isPeeking: viewer.role === 'LITTLE_GIRL' ? viewer.isPeeking : false,
@@ -225,17 +184,6 @@ export function sanitizeStateForPlayer(
       nightActionSummary,
       wasInfectedToWolf:
         viewer.originalRole !== 'WEREWOLF' && viewer.role === 'WEREWOLF',
-      elderLivesRemaining: viewer.elderLivesRemaining,
-      foxPowerLost: viewer.foxPowerLost,
-      lastFoxSniff: viewer.role === 'FOX' ? viewer.lastFoxSniff : null,
-      loverPartnerId: viewer.loverPartnerId,
-      roleModelId: viewer.role === 'WILD_CHILD' ? viewer.roleModelId : null,
-      thiefExtraRoles:
-        viewer.role === 'THIEF' && roomState.nightNumber === 1
-          ? roomState.thiefExtraRoles
-          : null,
-      canBigBadWolfKill:
-        viewer.role === 'BIG_BAD_WOLF' && !roomState.anyWolfHasDied,
     };
   }
 
@@ -277,8 +225,6 @@ export function sanitizeStateForPlayer(
         ? roomState.wolfAlertedThisNight
         : false,
     lastNightCasualties: roomState.lastNightCasualties.map(sanitizeCasualty),
-    crowCursedPlayerId: roomState.crowCursedPlayerId,
-    villagePowersLost: roomState.villagePowersLost,
     skipDiscussionVotes: roomState.skipDiscussionVotes,
     dayVotes: roomState.dayVotes,
     lastExecutedPlayer: roomState.lastExecutedPlayer

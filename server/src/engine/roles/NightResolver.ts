@@ -6,38 +6,26 @@ import {
 } from '../../types/game.js';
 import {
   computeConsensusWolfTarget,
-  isWolfPackRole,
   NightResolutionContext,
 } from './RoleStrategy.js';
 import { getRoleStrategy } from './RoleStrategies.js';
 
 export class NightResolver {
   /**
-   * Executes the deterministic night turn order:
-   * Night 1 Setup (Thief -> Cupid -> Wild Child -> Sisters)
-   * -> Fox / Seer / Wolf Seer / Medium
-   * -> Bodyguard (Guard)
-   * -> Werewolves
-   * -> Big Bad Wolf / Infectious Father of Wolves (Black Wolf)
-   * -> White Wolf
-   * -> Witch
-   * -> Crow
-   * -> Serial Killer
-   * -> Morning Resolution (Elder 2-lives, Lovers heartbreak, Wild Child conversion)
+   * Executes deterministic night turn resolution:
+   * Guard -> Qətil Pack Vote -> Witch -> Black Wolf Infect -> White Wolf
+   * -> Seer & Mystic Wolf -> Arsonist Douse/Ignite -> Morning Aggregation
    */
   static resolve(room: RoomState): NightResolutionContext {
     const context: NightResolutionContext = {
       room,
       protectedPlayerIds: new Set<string>(),
       wolfVictimId: computeConsensusWolfTarget(room),
-      bigBadWolfVictimId: null,
       witchSavedVictim: false,
       poisonedPlayerIds: new Set<string>(),
       infectedPlayerId: null,
       whiteWolfVictimId: null,
-      serialKillerVictimId: null,
-      crowCursedId: null,
-      seerInspection: null,
+      arsonistIgnitedIds: new Set<string>(),
       casualties: [],
     };
 
@@ -49,78 +37,28 @@ export class NightResolver {
       }
     };
 
-    // =========================================================
-    // 1. Night 1 Setup: Thief -> Cupid -> Wild Child -> Sisters
-    // =========================================================
-    if (room.nightNumber === 1) {
-      runRole('THIEF');
-      runRole('CUPID');
-      runRole('WILD_CHILD');
-
-      // Sisters recognize each other on Night 1
-      const sisters = room.players.filter(
-        (p) => p.isAlive && p.role === 'SISTERS'
-      );
-      if (sisters.length > 1) {
-        for (const s1 of sisters) {
-          for (const s2 of sisters) {
-            if (s1.id !== s2.id) {
-              s1.knownRoles[s2.id] = 'SISTERS';
-            }
-          }
-        }
-      }
-    }
-
-    // =========================================================
-    // 2. Information Roles: Fox -> Seer -> Wolf Seer -> Medium
-    // =========================================================
-    runRole('FOX');
-    runRole('SEER');
-    runRole('WOLF_SEER');
-    runRole('MEDIUM');
-
-    // =========================================================
-    // 3. Protection: Bodyguard (Guard)
-    // =========================================================
+    // 1. Guard protection
     runRole('GUARD');
 
-    // =========================================================
-    // 4. Werewolf Pack Vote -> Witch -> Big Bad Wolf / Black Wolf
-    // Note: Witch resolves heal before Black Wolf checks `!context.witchSavedVictim`
-    // =========================================================
+    // 2. Consensus Qətil pack victim + Witch potions + Black Wolf infect + White Wolf betrayal
     context.wolfVictimId = computeConsensusWolfTarget(room);
     runRole('WITCH');
-    runRole('BIG_BAD_WOLF');
     runRole('BLACK_WOLF');
-
-    // =========================================================
-    // 5. White Wolf Betrayal Kill (Even Nights)
-    // =========================================================
     runRole('WHITE_WOLF');
 
-    // =========================================================
-    // 6. Crow Curse (+2 votes for next day)
-    // =========================================================
-    room.crowCursedPlayerId = null;
-    runRole('CROW');
-    if (context.crowCursedId) {
-      room.crowCursedPlayerId = context.crowCursedId;
-    }
+    // 3. Information inspection roles
+    runRole('SEER');
+    runRole('MYSTIC_WOLF');
 
-    // =========================================================
-    // 7. Serial Killer Independent Kill
-    // =========================================================
-    runRole('SERIAL_KILLER');
+    // 4. Arsonist Douse or Ignite all doused simultaneously
+    runRole('ARSONIST');
 
-    // =========================================================
-    // 8. Apply Black Wolf Infection if target wasn't poisoned/killed
-    // =========================================================
+    // 5. Apply Black Wolf Infection if victim wasn't simultaneously killed by poison or fire
     room.lastNightInfectedId = null;
     if (
       context.infectedPlayerId &&
       !context.poisonedPlayerIds.has(context.infectedPlayerId) &&
-      context.serialKillerVictimId !== context.infectedPlayerId
+      !context.arsonistIgnitedIds.has(context.infectedPlayerId)
     ) {
       const infectedPlayer = room.players.find(
         (p) => p.id === context.infectedPlayerId && p.isAlive
@@ -132,42 +70,25 @@ export class NightResolver {
       }
     }
 
-    // =========================================================
-    // 9. Morning Resolution: Aggregate Lethal Attacks & Elder 2-Lives
-    // =========================================================
+    // 6. Aggregate Morning Deaths
     const pendingDeaths = new Map<string, DeathCause>();
 
-    const tryWolfKill = (victimId: string, cause: 'WEREWOLVES' | 'BIG_BAD_WOLF') => {
-      if (context.protectedPlayerIds.has(victimId)) return;
-      const victim = room.players.find((p) => p.id === victimId && p.isAlive);
-      if (!victim) return;
-
-      // Elder survives the first werewolf attack (2 lives against wolves)
-      if (victim.role === 'ELDER' && victim.elderLivesRemaining > 1) {
-        victim.elderLivesRemaining -= 1;
-        return;
-      }
-
-      if (!pendingDeaths.has(victim.id)) {
-        pendingDeaths.set(victim.id, cause);
-      }
-    };
-
-    // 9a. Pack Wolf Victim
+    // 6a. Pack Wolf Victim (blocked by Guard, Witch Heal, or Black Wolf Infection)
     if (
       context.wolfVictimId &&
+      !context.protectedPlayerIds.has(context.wolfVictimId) &&
       !context.witchSavedVictim &&
       context.infectedPlayerId !== context.wolfVictimId
     ) {
-      tryWolfKill(context.wolfVictimId, 'WEREWOLVES');
+      const victim = room.players.find(
+        (p) => p.id === context.wolfVictimId && p.isAlive
+      );
+      if (victim) {
+        pendingDeaths.set(victim.id, 'WEREWOLVES');
+      }
     }
 
-    // 9b. Big Bad Wolf Extra Victim
-    if (context.bigBadWolfVictimId) {
-      tryWolfKill(context.bigBadWolfVictimId, 'BIG_BAD_WOLF');
-    }
-
-    // 9c. White Wolf Victim (Blocked by Guard protection)
+    // 6b. White Wolf Betrayal Kill (blocked by Guard)
     if (
       context.whiteWolfVictimId &&
       !context.protectedPlayerIds.has(context.whiteWolfVictimId)
@@ -180,7 +101,7 @@ export class NightResolver {
       }
     }
 
-    // 9d. Witch Poison Victim (Bypasses Guard & Elder armor)
+    // 6c. Witch Poison Victim (bypasses Guard)
     for (const poisonedId of context.poisonedPlayerIds) {
       const victim = room.players.find((p) => p.id === poisonedId && p.isAlive);
       if (victim && !pendingDeaths.has(victim.id)) {
@@ -188,25 +109,24 @@ export class NightResolver {
       }
     }
 
-    // 9e. Serial Killer Victim (Bypasses Guard & Elder wolf-armor)
-    if (context.serialKillerVictimId) {
-      const victim = room.players.find(
-        (p) => p.id === context.serialKillerVictimId && p.isAlive
-      );
+    // 6d. Arsonist Ignite Victims (simultaneous fire, bypasses Guard)
+    for (const ignitedId of context.arsonistIgnitedIds) {
+      const victim = room.players.find((p) => p.id === ignitedId && p.isAlive);
       if (victim && !pendingDeaths.has(victim.id)) {
-        pendingDeaths.set(victim.id, 'SERIAL_KILLER');
+        pendingDeaths.set(victim.id, 'ARSONIST_IGNITE');
       }
     }
 
-    // Apply primary deaths
     for (const [playerId, cause] of pendingDeaths.entries()) {
       this.eliminatePlayer(room, playerId, cause, 'NIGHT_PHASE', context.casualties);
     }
 
-    // 10. Post-Death Chains: Lovers Heartbreak, Elder Power Loss, Wild Child Transformation
-    this.processPostDeathEffects(room, 'NIGHT_PHASE', context.casualties);
+    // Clean any eliminated targets from future Arsonist doused list
+    room.arsonistDousedIds = room.arsonistDousedIds.filter((id) =>
+      room.players.some((p) => p.id === id && p.isAlive)
+    );
 
-    // 11. Increment survival stats for players who survived the night
+    // 7. Increment survival stats & reset Little Girl peek flag
     for (const player of room.players) {
       if (player.isAlive) {
         player.stats.nightsSurvived += 1;
@@ -237,7 +157,6 @@ export class NightResolver {
     player.diedOnDay = room.dayNumber;
     player.deathReason = formatDeathCause(cause);
 
-    // Respect `revealDeadRoles` setting!
     const shouldReveal = room.config.revealDeadRoles !== false;
     player.revealedRole = shouldReveal ? player.role : null;
 
@@ -248,81 +167,22 @@ export class NightResolver {
       cause,
     });
 
-    if (isWolfPackRole(player.role)) {
-      room.anyWolfHasDied = true;
-    }
-
-    // If Elder died due to village vote or Witch poison or Hunter shot, village loses special powers
-    if (
-      player.role === 'ELDER' &&
-      (cause === 'EXECUTION' || cause === 'WITCH_POISON' || cause === 'HUNTER_SHOT')
-    ) {
-      room.villagePowersLost = true;
-    }
-
     return player;
-  }
-
-  /**
-   * Resolves cascading Lovers heartbreak deaths and Wild Child transformation.
-   */
-  static processPostDeathEffects(
-    room: RoomState,
-    phase: RoomState['phase'],
-    casualtiesList: NightCasualty[]
-  ): void {
-    // 1. Lovers Heartbreak Chain
-    let heartbreakTriggered = true;
-    while (heartbreakTriggered) {
-      heartbreakTriggered = false;
-      for (const player of room.players) {
-        if (!player.isAlive && player.loverPartnerId) {
-          const partner = room.players.find(
-            (p) => p.id === player.loverPartnerId && p.isAlive
-          );
-          if (partner) {
-            this.eliminatePlayer(
-              room,
-              partner.id,
-              'HEARTBREAK',
-              phase,
-              casualtiesList
-            );
-            heartbreakTriggered = true;
-          }
-        }
-      }
-    }
-
-    // 2. Wild Child Transformation if Role Model is dead
-    for (const player of room.players) {
-      if (player.isAlive && player.role === 'WILD_CHILD' && player.roleModelId) {
-        const model = room.players.find((p) => p.id === player.roleModelId);
-        if (model && !model.isAlive) {
-          player.role = 'WEREWOLF';
-          player.faction = 'WEREWOLF';
-        }
-      }
-    }
   }
 }
 
 export function formatDeathCause(cause: DeathCause): string {
   switch (cause) {
     case 'WEREWOLVES':
-      return 'Canavarlar tərəfindən parçalandı (Devoured by Werewolves)';
-    case 'BIG_BAD_WOLF':
-      return 'Böyük Qara Canavar tərəfindən parçalandı (Slain by Big Bad Wolf)';
+      return 'Qətil canavarlar tərəfindən parçalandı (Devoured by Wolves)';
     case 'WITCH_POISON':
       return 'Cadugərin ölüm iksiri ilə zəhərləndi (Poisoned by the Witch)';
     case 'WHITE_WOLF':
       return 'Ağ Canavar tərəfindən parçalandı (Torn apart by White Wolf)';
-    case 'SERIAL_KILLER':
-      return 'Qatil tərəfindən gecə bıçaqlandı (Assassinated by Serial Killer)';
+    case 'ARSONIST_IGNITE':
+      return 'Alovçunun alovuna qərq oldu (Burned by the Arsonist)';
     case 'HUNTER_SHOT':
       return 'Ovçunun son gülləsi ilə vuruldu (Shot by the dying Hunter)';
-    case 'HEARTBREAK':
-      return 'Sevgilisinin ölümünə dözməyib ürəyi partladı (Died of Heartbreak 💔)';
     case 'EXECUTION':
       return 'Kənd məhkəməsi tərəfindən edam edildi (Executed by Village Vote)';
   }

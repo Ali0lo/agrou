@@ -1,5 +1,5 @@
 import { MvpAward, RoomState, WinningFaction } from '../types/game.js';
-import { isWolfPackRole } from './roles/RoleStrategy.js';
+import { isQetilFactionRole, isWolfPackRole } from './roles/RoleStrategy.js';
 
 export interface WinCheckResult {
   isGameOver: boolean;
@@ -12,119 +12,84 @@ export class WinConditionChecker {
     room: RoomState,
     context?: { justExecutedPlayerId?: string }
   ): WinCheckResult {
-    // 1. Check Jester (Təlxək / Dəli) & Day 1 Angel Execution Win
-    if (context?.justExecutedPlayerId) {
+    // 1. Day 1 Angel Instant Execution Win
+    if (context?.justExecutedPlayerId && room.dayNumber === 1) {
       const executed = room.players.find(
         (p) => p.id === context.justExecutedPlayerId
       );
-      if (executed && executed.role === 'JESTER') {
-        return {
-          isGameOver: true,
-          winner: 'JESTER',
-          reason: `🃏 ${executed.nickname} (Təlxək / Jester) kəndi aldadaraq özünü edam etdirdi və təkbaşına qalib oldu!`,
-        };
-      }
-      if (executed && executed.role === 'ANGEL' && room.dayNumber === 1) {
+      if (executed && executed.role === 'ANGEL') {
         return {
           isGameOver: true,
           winner: 'ANGEL',
-          reason: `${executed.nickname} (the Angel) was executed by the village on Day 1 and ascended to victory!`,
+          reason: `👼 ${executed.nickname} (Mələk / Angel) 1-ci gün səsvermə ilə edam edildi və təkbaşına qalib gəldi!`,
         };
       }
     }
 
     const alivePlayers = room.players.filter((p) => p.isAlive);
 
-    // 2. Lovers (Aşiqlər) Solo Pair Win: if the last 2 alive players are the linked Lovers
-    if (alivePlayers.length === 2 && room.lovers) {
-      const [l1, l2] = room.lovers;
-      const bothLoversAlive =
-        alivePlayers.some((p) => p.id === l1) &&
-        alivePlayers.some((p) => p.id === l2);
-      if (bothLoversAlive) {
-        const p1 = alivePlayers[0];
-        const p2 = alivePlayers[1];
-        // If they are cross-faction (e.g. Wolf + Villager/Neutral), or last two standing
-        if (p1.faction !== p2.faction) {
-          return {
-            isGameOver: true,
-            winner: 'LOVERS',
-            reason: `💘 Aşiqlər (${p1.nickname} & ${p2.nickname}) bütün maneələri aşaraq birlikdə sağ qaldılar və qalib gəldilər!`,
-          };
-        }
-      }
+    // 2. Mutual destruction / No survivors
+    if (alivePlayers.length === 0) {
+      return {
+        isGameOver: true,
+        winner: 'NONE',
+        reason: '🌑 Tonqal ətrafında heç kim sağ qalmadı — oyun bərabərliklə bitdi!',
+      };
     }
 
     const aliveWhiteWolves = alivePlayers.filter((p) => p.role === 'WHITE_WOLF');
-    const aliveSerialKillers = alivePlayers.filter(
-      (p) => p.role === 'SERIAL_KILLER'
-    );
-    const alivePackWolves = alivePlayers.filter(
-      (p) =>
-        p.role === 'WEREWOLF' ||
-        p.role === 'BIG_BAD_WOLF' ||
-        p.role === 'BLACK_WOLF' ||
-        p.role === 'WOLF_SEER'
+    const aliveArsonists = alivePlayers.filter((p) => p.role === 'ARSONIST');
+    const aliveQetilWolves = alivePlayers.filter((p) =>
+      isQetilFactionRole(p.role)
     );
     const totalHostileThreats =
-      alivePackWolves.length +
+      aliveQetilWolves.length +
       aliveWhiteWolves.length +
-      aliveSerialKillers.length;
-    const aliveNonWolves = alivePlayers.filter((p) => !isWolfPackRole(p.role));
+      aliveArsonists.length;
 
-    // 3. White Wolf solo win: only when White Wolf is the very last player alive
+    // 3. White Wolf sole survivor solo win
     if (alivePlayers.length === 1 && aliveWhiteWolves.length === 1) {
       const ww = aliveWhiteWolves[0];
       return {
         isGameOver: true,
         winner: 'WHITE_WOLF',
-        reason: `🐻‍❄️ ${ww.nickname} (Ağ Canavar / White Wolf) həm kəndi, həm də sürünü məhv edərək tək sağ qalan qalib oldu!`,
+        reason: `🐻‍❄️ ${ww.nickname} (Ağ Canavar / White Wolf) sağ qalan sonuncu oyunçu olaraq təkbaşına qalib gəldi!`,
       };
     }
 
-    // 4. Serial Killer solo win: only when Serial Killer is the very last player alive
-    if (alivePlayers.length === 1 && aliveSerialKillers.length === 1) {
-      const sk = aliveSerialKillers[0];
+    // 4. Arsonist sole survivor solo win
+    if (alivePlayers.length === 1 && aliveArsonists.length === 1) {
+      const arso = aliveArsonists[0];
       return {
         isGameOver: true,
-        winner: 'SERIAL_KILLER',
-        reason: `🗡️ ${sk.nickname} (Zərbəçi / Serial Killer) gecənin tək hakimi olaraq qalib gəldi!`,
+        winner: 'ARSONIST',
+        reason: `🔥 ${arso.nickname} (Alovçu / Arsonist) bütün tonqalı külə çevirib sonuncu sağ qalan qalib oldu!`,
       };
     }
 
-    // 5. Village Team win: all Werewolves and Killing Neutrals (White Wolf, Serial Killer) are dead
+    // 5. Normal (Village Team) win: all Qətil and lethal Tərəfsiz (White Wolf, Arsonist) eliminated
     if (totalHostileThreats === 0) {
       return {
         isGameOver: true,
         winner: 'VILLAGE',
         reason:
-          '🌾 Bütün Canavarlar və təhlükələr zərərsizləşdirildi! Kəndlilər (Village) qalib gəldi!',
+          '🌾 Bütün Qətillər və təhlükəli Tərəfsizlər zərərsizləşdirildi! Normal (Kənd) komandası qalib gəldi!',
       };
     }
 
-    // Check if living cross-faction Lovers exist (if so, game continues until Lovers or their faction resolves)
-    let hasLivingCrossFactionLovers = false;
-    if (room.lovers) {
-      const p1 = alivePlayers.find((p) => p.id === room.lovers?.[0]);
-      const p2 = alivePlayers.find((p) => p.id === room.lovers?.[1]);
-      if (p1 && p2 && p1.faction !== p2.faction) {
-        hasLivingCrossFactionLovers = true;
-      }
-    }
-
-    // 6. Werewolf Team win: Werewolves equal or outnumber non-Werewolves
-    // (when no White Wolf, Serial Killer, or cross-faction Lovers remain to contest)
+    // 6. Qətil (Werewolf Team) win: alive Qətil equal or outnumber all other alive players
+    // (while White Wolf & Arsonist no longer remain alive to contest sole survival)
+    const aliveNonWolves = alivePlayers.filter((p) => !isWolfPackRole(p.role));
     if (
       aliveWhiteWolves.length === 0 &&
-      aliveSerialKillers.length === 0 &&
-      !hasLivingCrossFactionLovers &&
-      alivePackWolves.length >= aliveNonWolves.length
+      aliveArsonists.length === 0 &&
+      aliveQetilWolves.length >= aliveNonWolves.length
     ) {
       return {
         isGameOver: true,
         winner: 'WEREWOLF',
         reason:
-          '🐺 Canavarlar kəndlilərin sayına çatdı və tonqal ətrafını ələ keçirdi! Canavarlar qalib gəldi!',
+          '🐺 Qətillər (Canavarlar) qalan bütün oyunçuların sayına çatdı və qalib gəldi!',
       };
     }
 
@@ -135,8 +100,11 @@ export class WinConditionChecker {
     };
   }
 
+  /**
+   * Converts surviving Angel into base Villager before Night 2 begins.
+   */
   static convertSurvivingAngelsAfterDay1(room: RoomState): string[] {
-    if (room.dayNumber !== 1) return [];
+    if (room.nightNumber > 2) return [];
     const convertedIds: string[] = [];
 
     for (const player of room.players) {
@@ -191,7 +159,7 @@ export class WinConditionChecker {
         nickname: bestVoter.nickname,
         role: bestVoter.role,
         title: 'İti İntuisiya (Sharpest Instincts)',
-        description: `Canavarlara qarşı ${bestVoter.stats.correctWolfVotes} dəqiq səs verdi.`,
+        description: `Qətillərə qarşı ${bestVoter.stats.correctWolfVotes} dəqiq səs verdi.`,
       });
     }
 

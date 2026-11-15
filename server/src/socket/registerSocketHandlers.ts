@@ -168,7 +168,7 @@ export function registerSocketHandlers(
       'lobby:updateConfig',
       (payload: {
         timers?: Partial<PhaseTimers>;
-        enabledRoles?: Partial<Record<RoleType, number>>;
+        enabledRoles?: Partial<Record<RoleType, boolean>>;
         allowWebRTC?: boolean;
         revealDeadRoles?: boolean;
       }) => {

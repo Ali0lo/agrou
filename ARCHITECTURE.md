@@ -2,221 +2,200 @@
 
 ## 1. System Overview
 
-**Campfire Wolves** is a full-stack, real-time multiplayer social deduction game for 4–12 players inspired by *Agrou* / *Werewolf*. The architecture is split into an authoritative Node.js + Express + Socket.io backend (`/server`) and a reactive Vite + React + TypeScript + Tailwind CSS + Framer Motion frontend (`/client`) inside a unified TypeScript monorepo.
+**Campfire Wolves** is a full-stack, real-time multiplayer social deduction browser game for **4 to 16 players** inspired by *Agrou* / *Werewolf*. The architecture separates an authoritative Node.js + Express + Socket.io backend (`/server`) from a reactive Vite + React + TypeScript + Tailwind CSS + Framer Motion frontend (`/client`) inside a TypeScript monorepo.
 
-```
+```text
 agrou/
-├── ARCHITECTURE.md
-├── package.json              # Root workspace scripts (build, test, dev)
-├── server/                   # Authoritative Node.js + Express + Socket.io server
-│   ├── package.json
-│   ├── tsconfig.json
+├── ARCHITECTURE.md           # State machine, deck-builder algorithm, socket contracts & security
+├── README.md                 # Setup, deployment & gameplay documentation
+├── package.json              # Root workspace scripts (dev, test, lint, build)
+├── server/                   # Authoritative Node.js + Express + Socket.io backend
 │   ├── src/
-│   │   ├── index.ts          # Express + Socket.io entrypoint
-│   │   ├── types/            # Shared domain & socket contract types
-│   │   ├── engine/           # State machine, sanitizer, win-condition & role strategies
-│   │   │   ├── RoomManager.ts
-│   │   │   ├── GameEngine.ts
-│   │   │   ├── StateSanitizer.ts
-│   │   │   ├── WinConditionChecker.ts
-│   │   │   └── roles/        # Strategy/Command pattern per role
+│   │   ├── index.ts          # Express health/role endpoints + Socket.io entrypoint
+│   │   ├── types/game.ts     # Authoritative & sanitized domain types
+│   │   ├── constants/        # Quota table & 12-role registry (Normal, Qətil, Tərəfsiz)
+│   │   ├── engine/           # RoomManager, GameEngine, StateSanitizer, ChatAuthorization, WinConditionChecker
+│   │   │   └── roles/        # Strategy pattern per role + deterministic NightResolver
 │   │   └── socket/           # Socket.io event handlers & WebRTC signaling
-│   └── tests/                # Unit & integration tests for role resolution & security
+│   └── tests/engine.test.ts  # Vitest unit tests (4-16 deck builder, roles, anti-cheat, chat)
 └── client/                   # Vite + React + TypeScript + Tailwind + Framer Motion UI
-    ├── package.json
-    ├── tsconfig.json
-    ├── index.html
     └── src/
-        ├── main.tsx
-        ├── App.tsx
-        ├── types/            # Client-side sanitized state & event contracts
-        ├── services/         # Socket.io client, Web Audio API synthesizer, session storage
-        └── components/       # Campfire Arena, Role Cards, Chat, Audio Controls, Drawers
+        ├── App.tsx           # Socket lifecycle, phase headers & layout
+        ├── constants/        # Role catalog & client quota preview helpers
+        ├── components/       # CampfireArena (4-16 radial scaling), LobbyConfigPanel, ChatPanel, etc.
+        └── services/         # Web Audio synthesizer & sessionStorage reconnection helper
 ```
 
 ---
 
 ## 2. Deterministic Game State Machine
 
-All phase transitions, timers, vote tallies, and role resolutions execute exclusively on the server. Each room maintains an authoritative `RoomState` and a single server-side interval/timeout ticker.
+All phase transitions, countdown timers, vote tallies, deck generation, and night action resolutions execute **exclusively on the server**. Each room maintains an authoritative `RoomState` and server-managed timers in `RoomManager`.
 
 ### Phase State Diagram
 
 ```mermaid
 stateDiagram-v2
     [*] --> LOBBY
-    LOBBY --> ROLE_REVEAL : Host starts game (4-12 players)
+    LOBBY --> ROLE_REVEAL : Host starts game (4-16 players)
     ROLE_REVEAL --> NIGHT_PHASE : After 8s timer
-    NIGHT_PHASE --> DAWN_SUMMARY : After Night timer (default 30s) or all night actions locked
+    NIGHT_PHASE --> DAWN_SUMMARY : After Night timer (default 30s)
     DAWN_SUMMARY --> HUNTER_REVENGE : If Hunter died at night (15s window)
     DAWN_SUMMARY --> GAME_OVER : Win condition met
-    DAWN_SUMMARY --> DAY_DISCUSSION : Alive players continue (Day 90s)
+    DAWN_SUMMARY --> DAY_DISCUSSION : Alive players continue (default 90s)
     HUNTER_REVENGE --> GAME_OVER : Win condition met after shot
     HUNTER_REVENGE --> DAY_DISCUSSION : If triggered from Dawn
-    HUNTER_REVENGE --> NIGHT_PHASE : If triggered from Execution
+    HUNTER_REVENGE --> NIGHT_PHASE : If triggered from Execution (next night)
     DAY_DISCUSSION --> DAY_VOTING : Timer expires (90s) or >50% alive vote to skip
     DAY_VOTING --> EXECUTION_REVEAL : Timer expires (30s) or all alive voted
     EXECUTION_REVEAL --> GAME_OVER : Angel voted out Day 1 OR Win condition met
     EXECUTION_REVEAL --> HUNTER_REVENGE : Executed player is Hunter (15s window)
-    EXECUTION_REVEAL --> NIGHT_PHASE : After 6s (Angel converts to Villager if survived Day 1)
-    GAME_OVER --> LOBBY : Host clicks "Play Again (Same Lobby)"
+    EXECUTION_REVEAL --> NIGHT_PHASE : After 6s (Day 1 surviving Angel -> Villager)
+    GAME_OVER --> LOBBY : Host clicks Play Again (keeps seats intact)
 ```
 
 ### Phase Specifications
 
 | Phase | Default Duration | Server Responsibilities | Client Experience |
 | :--- | :--- | :--- | :--- |
-| `LOBBY` | Indefinite | Generate 5-char room code, manage player seats/avatars, validate role deck configuration & timers, allow adding bots for testing. | Copyable invite link, avatar/color picker, Host Role Deck & Timer settings panel. |
-| `ROLE_REVEAL` | 8s | Shuffle deck, assign roles & initial state (`witchPotions`, `blackWolfUsed`, etc.), increment `dayNumber = 1`. | 3D Framer Motion card flip revealing player's secret Role, Faction, and Win Condition. |
-| `NIGHT_PHASE` | 30s (configurable) | Accept Werewolf pack votes/chat, Little Girl peek ticks, Guard target, Seer inspect, Black Wolf infect toggle, Witch heal/poison, White Wolf solo kill. | Deep indigo moonlight theme; sleeping campfire for Villagers; interactive target selectors around the campfire for active night roles. |
-| `DAWN_SUMMARY` | 8s | Resolve night actions via Strategy pipeline, apply deaths/conversions, reveal night casualties & their roles, check Hunter death, evaluate win conditions. | Sunrise transition, rooster crow audio, dramatic announcement of night casualties or peaceful night. |
-| `DAY_DISCUSSION` | 90s (configurable) | Route alive messages to public chat, dead messages to Ghost Chat, track "End Discussion Early" votes (>50% alive threshold transitions early). | Warm orange campfire theme, public chat + Ghost chat tab, speaking/typing indicators, skip-to-vote button. |
-| `DAY_VOTING` | 30s (configurable) | Record elimination votes or `SKIP` from alive players, broadcast live vote counts per seat, resolve plurality (ties = no elimination). | Click player seats around the campfire to vote; live vote badges next to avatars. |
-| `EXECUTION_REVEAL` | 6s | Eliminate highest-voted player (if no tie), reveal their role, check Day 1 Angel win, check Hunter revenge, convert surviving Day 1 Angel to Villager, check win conditions. | Gavel sound effect, execution reveal banner, gravestone placement, Hunter revenge overlay if applicable. |
-| `GAME_OVER` | Indefinite | Reveal full unmasked roles for all players, calculate MVP stats, persist match summary in memory/storage, allow resetting to `LOBBY`. | Full role reveal table, winning faction celebration, MVP badges, "Play Again" button. |
-
-> **Hunter Revenge Sub-flow:** When the Hunter dies (either during `DAWN_SUMMARY` from night resolution or during `EXECUTION_REVEAL` from a day vote), the server sets `pendingHunterId` and grants a **15-second** window (`hunterRevengeEndsAt`) before advancing to the next phase. The dying Hunter selects any living player around the campfire to immediately eliminate.
+| `LOBBY` | Indefinite | Generate 5-char room code, manage 4–16 seats/avatars/bots, store boolean special role `ON/OFF` toggles & timers, preview faction quota breakdown. | Copyable invite URL, avatar/color picker, live `Normal / Qətil / Tərəfsiz` quota preview, `ON/OFF` role switches, timer sliders. |
+| `ROLE_REVEAL` | `8s` | Execute `buildRoleDeck(playerCount, enabledToggles)`, cryptographically deal 1 role per seat, reset potion/infection/douse state, `dayNumber = 1`. | 3D card-flip revealing Role, Faction (`Normal`, `Qətil`, or `Tərəfsiz`), ability description, and win condition. |
+| `NIGHT_PHASE` | `30s` (configurable) | Route private `wolves` chat (with anonymized Little Girl peeking), accept Qətil pack votes + Black Wolf infect / Mystic Wolf inspect, Guard protect, Seer inspect, Witch heal/poison, White Wolf odd-even night betrayal, Arsonist douse/ignite. | Deep indigo moonlight theme; sleeping campfire for passive villagers; interactive radial target selectors and action bars for night-active roles. |
+| `DAWN_SUMMARY` | `8s` | Resolve night actions via `NightResolver`, apply deaths/conversions, announce casualties (respecting `revealDeadRoles`), trigger 15s `HUNTER` shot if killed, check win conditions. | Sunrise transition, dawn rooster audio cue, casualty banner, infection notice if converted. |
+| `DAY_DISCUSSION` | `90s` (configurable) | Route alive messages to `public` chat and dead messages to `dead` Ghost Chat; transition early when `>50%` of alive players vote to skip. | Warm amber campfire theme, tabbed chat (`public` / `dead`), typing/PTT speaking badges, skip-to-vote button. |
+| `DAY_VOTING` | `30s` (configurable) | Record elimination target or `SKIP` per alive player, broadcast live counts per seat, resolve plurality (ties or skip plurality = no elimination). | Radial seat voting with live vote badges + `Skip Vote` button. |
+| `EXECUTION_REVEAL` | `6s` | Eliminate winning candidate, reveal role (if `revealDeadRoles`), check Day 1 `ANGEL` win, trigger `HUNTER` 15s shot if executed, convert surviving Day 1 `ANGEL` to `VILLAGER` before Night 2, evaluate win conditions. | Gavel sound cue, execution summary card, Hunter interrupt if triggered. |
+| `GAME_OVER` | Indefinite | Unmask all roles, compute MVP awards, allow Host to reset the room back to `LOBBY`. | Full role reveal, winning team/solo banner, MVP cards, Play Again button. |
 
 ---
 
-## 3. Role Resolution Engine (Strategy / Command Pattern)
+## 3. Automatic Faction Distribution & Deck-Builder Algorithm (`4–16` Players)
 
-Each role implements the `RoleStrategy` interface on the backend:
+In the Lobby, the host **cannot** configure arbitrary role counts. Every special role is a boolean **`ON / OFF` toggle** with a strict **maximum of 1 copy per match**. Only base **Villager** (`VILLAGER`) and base **Werewolf** (`WEREWOLF`) can appear more than once.
 
-```ts
-export interface RoleStrategy {
-  readonly role: RoleType;
-  readonly faction: Faction;
-  canActAtNight(room: RoomState, player: PlayerState): boolean;
-  validateNightAction(room: RoomState, actor: PlayerState, action: NightActionPayload): ValidationResult;
-  applyNightAction(context: NightResolutionContext, actor: PlayerState, action: NightActionPayload): void;
-}
-```
+### Automatic Faction Quota Table
 
-### Night Resolution Priority Order
+| Players ($N$) | Normal (Village) | Qətil (Killers) | Tərəfsiz (Neutral) | Total |
+| :---: | :---: | :---: | :---: | :---: |
+| **4** | 3 | 1 | 0 | 4 |
+| **5** | 4 | 1 | 0 | 5 |
+| **6** | 4 | 1 | 1 | 6 |
+| **7** | 5 | 1 | 1 | 7 |
+| **8** | 5 | 2 | 1 | 8 |
+| **9** | 6 | 2 | 1 | 9 |
+| **10** | 6 | 2 | 2 | 10 |
+| **11** | 7 | 2 | 2 | 11 |
+| **12** | 7 | 2 | 3 | 12 |
+| **13** | 8 | 3 | 2 | 13 |
+| **14** | 9 | 3 | 2 | 14 |
+| **15** | 9 | 3 | 3 | 15 |
+| **16** | 10 | 3 | 3 | 16 |
 
-During `NIGHT_PHASE`, players submit actions asynchronously (and Wolves vote on a pack victim, updating the current pack target so the Witch and Black Wolf can react). At the end of `NIGHT_PHASE`, `NightResolver.resolve(roomState)` executes deterministically in the following order:
+### `buildRoleDeck(playerCount, enabledToggles)` Algorithm
 
-1. **Guard Protection (`GUARD`)**
-   - Marks `context.protectedPlayerIds.add(targetId)`.
-   - Validation enforces `targetId !== guard.lastProtectedPlayerId`. Updates `guard.lastProtectedPlayerId = targetId`.
-2. **Werewolf Pack Vote Tally (`WEREWOLF`, `BLACK_WOLF`, `WHITE_WOLF`)**
-   - Counts votes from all living wolf-pack members (`WEREWOLF`, `BLACK_WOLF`, `WHITE_WOLF`).
-   - Plurality determines `context.wolfVictimId` (ties among wolves resolve to the earliest-submitted top target, or `null` if no wolf voted).
-3. **Black Wolf Infection (`BLACK_WOLF`)**
-   - Once per game (`!room.blackWolfInfectionUsed`), if the Black Wolf chose to infect `context.wolfVictimId` AND the victim is **not** protected by the Guard (`!context.protectedPlayerIds.has(wolfVictimId)`):
-     - Sets `context.infectedPlayerId = wolfVictimId`.
-     - Cancels standard wolf kill on `wolfVictimId`.
-     - Converts the victim's `role` to `WEREWOLF` (and `faction` to `WEREWOLF`), sending them a private notification at Dawn while Dawn announces a peaceful night (unless others died).
-4. **Witch Potions (`WITCH`)**
-   - **Heal Potion:** Single-use (`!room.witchState.healUsed`). Saves `context.wolfVictimId` from the Werewolf pack attack (`context.witchSavedVictim = true`) and prevents infection if applicable.
-   - **Poison Potion:** Single-use (`!room.witchState.poisonUsed`). Marks `context.poisonedPlayerIds.add(targetId)`. **Poison bypasses Guard protection.**
-5. **White Wolf Betrayal (`WHITE_WOLF`)**
-   - Active only on even nights (`room.nightNumber % 2 === 0`).
-   - Target must be another living Werewolf (`WEREWOLF` or `BLACK_WOLF`).
-   - Unless protected by the Guard, marks the target for death (`context.whiteWolfVictimId = targetId`).
-6. **Seer Inspection (`SEER`)**
-   - Inspects `targetId` and sends a private `seer:result` event (and stores in `player.knownRoles[targetId]`) with the target's exact role.
-7. **Damage & Death Aggregation**
-   - `wolfVictimId` dies **if and only if**:
-     - `wolfVictimId !== null`
-     - `!context.protectedPlayerIds.has(wolfVictimId)`
-     - `!context.witchSavedVictim`
-     - `context.infectedPlayerId !== wolfVictimId`
-   - `poisonedPlayerIds` always die (Guard cannot block Witch's poison; Witch heal only applies to the Werewolf victim).
-   - `whiteWolfVictimId` dies unless `context.protectedPlayerIds.has(whiteWolfVictimId)`.
+1. **Quota Lookup:** Look up `(normalQuota, qetilQuota, terefsizQuota)` for `playerCount ∈ [4..16]`.
+2. **Tərəfsiz Slots:**
+   - Filter enabled roles from `['ANGEL', 'WHITE_WOLF', 'ARSONIST']` (max 1 each).
+   - Cryptographically shuffle the enabled pool and take up to `terefsizQuota` unique roles.
+   - If fewer `Tərəfsiz` roles are toggled `ON` than `terefsizQuota`, add the shortage `(terefsizQuota - pickedTerefsiz.length)` directly into `normalQuota` so the total deck still equals $N$.
+3. **Qətil Slots:**
+   - Filter enabled special roles from `['BLACK_WOLF', 'MYSTIC_WOLF']` (max 1 each).
+   - Cryptographically shuffle the enabled pool and take up to `qetilQuota` unique roles.
+   - Fill all remaining `qetilQuota` slots with base `'WEREWOLF'` cards.
+4. **Normal Slots:**
+   - Filter enabled special roles from `['SEER', 'WITCH', 'GUARD', 'HUNTER', 'LITTLE_GIRL']` (max 1 each).
+   - Cryptographically shuffle the enabled pool and take up to `normalQuota` unique roles.
+   - Fill all remaining `normalQuota` slots with base `'VILLAGER'` cards.
+5. **Deal:** Cryptographically shuffle all $N$ cards using Fisher-Yates backed by `crypto.randomInt` and deal 1 role per seated player.
+
+---
+
+## 4. Playable Roles & Deterministic Night Resolution
+
+### Role Catalog (12 Roles)
+- **Normal (`VILLAGE`):** `VILLAGER` (base filler), `SEER`, `WITCH`, `GUARD`, `HUNTER`, `LITTLE_GIRL`.
+- **Qətil (`WEREWOLF`):** `WEREWOLF` (base filler), `BLACK_WOLF` (1x convert pack victim), `MYSTIC_WOLF` (1x/night inspects non-Wolf to check if they hold a special Normal/Tərəfsiz power).
+- **Tərəfsiz (`NEUTRAL`):** `ANGEL` (Day 1 execution win; becomes `VILLAGER` before Night 2), `WHITE_WOLF` (appears as normal Werewolf to pack; even-night betrayal kill against fellow Qətil; sole-survivor win), `ARSONIST` (`DOUSE` 1 player or `IGNITE` all currently doused players simultaneously; sole-survivor win).
+
+### Night Resolution Priority (`NightResolver.resolve`)
+1. **Guard (`GUARD`):** Marks `protectedPlayerIds.add(targetId)`. Validation blocks consecutive protection of the same target.
+2. **Qətil Pack Vote (`WEREWOLF`, `BLACK_WOLF`, `MYSTIC_WOLF`, `WHITE_WOLF`):** Plurality decides `wolfVictimId`.
+3. **Witch (`WITCH`):**
+   - `WITCH_HEAL` (1x): Saves `wolfVictimId` from both death and infection.
+   - `WITCH_POISON` (1x): Marks target for lethal poisoning (bypasses Guard).
+4. **Black Wolf (`BLACK_WOLF`):** `BLACK_WOLF_INFECT` (1x): If pack target is alive and neither guarded nor healed by Witch, converts the victim into `WEREWOLF` (`faction: 'WEREWOLF'`) instead of killing them.
+5. **White Wolf (`WHITE_WOLF`):** On even nights (`nightNumber % 2 === 0`), can mark another living Qətil wolf (`whiteWolfVictimId`) to die (blocked by Guard protection).
+6. **Seer (`SEER`) & Mystic Wolf (`MYSTIC_WOLF`):** Inspections resolve immediately when submitted (once per night) so players can use intel cleanly:
+   - `SEER` learns target's exact `RoleType`.
+   - `MYSTIC_WOLF` learns only a boolean `hasSpecialPower` (`target.role !== 'VILLAGER'`).
+7. **Arsonist (`ARSONIST`):**
+   - `ARSONIST_DOUSE`: Adds `targetId` to `room.arsonistDousedIds` (persists across nights until Ignited).
+   - `ARSONIST_IGNITE`: Marks all currently alive players in `room.arsonistDousedIds` for simultaneous fire elimination (bypasses Guard protection) and clears Ignited targets from the douse list.
+8. **Morning Aggregation:** Applies pending deaths and increments `nightsSurvived`.
 
 ### Win Condition Priority (`WinConditionChecker`)
-
-Checked immediately at `DAWN_SUMMARY`, after any `HUNTER` shot, and at `EXECUTION_REVEAL`:
-
-1. **Angel Instant Win (`ANGEL`)**: If `phase === 'EXECUTION_REVEAL'`, `dayNumber === 1`, and the executed player's role is `ANGEL`, the Angel wins solo immediately (`winner: 'ANGEL'`).
-2. **Tie / Mutual Destruction (`NONE`)**: If `alivePlayers.length === 0`, the game ends in a draw.
-3. **White Wolf Solo Win (`WHITE_WOLF`)**: If `alivePlayers.length === 1` and that sole survivor has `role === 'WHITE_WOLF'`, the White Wolf wins solo (`winner: 'WHITE_WOLF'`).
-4. **Village Win (`VILLAGE`)**: If `aliveWerewolvesCount === 0` (where Werewolves include `WEREWOLF`, `BLACK_WOLF`, and `WHITE_WOLF`), the Village team wins (`winner: 'VILLAGE'`).
-5. **Werewolf Pack Win (`WEREWOLF`)**: If `aliveWerewolvesCount >= aliveNonWerewolvesCount` **AND** either no `WHITE_WOLF` is alive or (`aliveWerewolvesCount > 1` and `aliveNonWerewolvesCount === 0` is false — Note: if only White Wolf + Werewolves remain, the White Wolf still wants to be last alive; standard Agrou rule: if `WHITE_WOLF` is alive alongside other wolves or villagers, the game continues if White Wolf can still betray, OR if no villagers remain and only regular wolves remain without White Wolf, `WEREWOLF` wins. Specifically:
-   - Regular Werewolves (`WEREWOLF` + `BLACK_WOLF`) win when `aliveWerewolvesCount >= aliveNonWerewolvesCount` **and** `aliveWhiteWolfCount === 0`.
-   - If `aliveWhiteWolfCount > 0`, the game continues until either `WHITE_WOLF` is the sole survivor (`WHITE_WOLF` win), `WHITE_WOLF` dies and regular wolves >= villagers (`WEREWOLF` win), or all wolves die (`VILLAGE` win). If `WHITE_WOLF` and 0 regular wolves and 1 villager remain (1v1), the White Wolf will devour the villager at night or win immediately if wolves outnumber/equal villagers with no other regular wolves? In Agrou, White Wolf wins *only* if they are the very last player alive, so the match continues until 1 player remains or White Wolf is eliminated).
+1. **Day 1 Angel Win (`ANGEL`):** Executed by village vote on `dayNumber === 1`.
+2. **Mutual Destruction (`NONE`):** `alivePlayers.length === 0`.
+3. **White Wolf Solo Win (`WHITE_WOLF`):** `alivePlayers.length === 1` and survivor is `WHITE_WOLF`.
+4. **Arsonist Solo Win (`ARSONIST`):** `alivePlayers.length === 1` and survivor is `ARSONIST`.
+5. **Normal / Village Win (`VILLAGE`):** `alivePackWolves === 0 && aliveWhiteWolves === 0 && aliveArsonists === 0`.
+6. **Qətil / Werewolf Win (`WEREWOLF`):** `aliveWhiteWolves === 0 && aliveArsonists === 0 && alivePackWolves >= aliveNonPackPlayers`.
 
 ---
 
-## 4. WebSocket Event Contracts
+## 5. WebSocket Event Contracts
 
 ### Client → Server Events
 
 | Event Name | Payload Type | Description |
 | :--- | :--- | :--- |
-| `room:create` | `{ nickname: string; avatar: string; color: string; sessionToken?: string }` | Creates a new room and assigns sender as Host. |
-| `room:join` | `{ roomCode: string; nickname: string; avatar: string; color: string; sessionToken?: string }` | Joins an existing room or reconnects via `sessionToken`. |
-| `room:reconnect` | `{ roomCode: string; sessionToken: string }` | Automatically restores seat & secret state on browser refresh. |
-| `lobby:updateConfig` | `{ timers: PhaseTimers; enabledRoles: Record<RoleType, number> }` | Host updates role counts and phase durations. |
-| `lobby:addBot` | `{}` | Host adds an AI bot seat (helpful for 4–12 player testing). |
-| `lobby:removePlayer` | `{ playerId: string }` | Host removes a bot or player in `LOBBY`. |
-| `game:start` | `{}` | Host starts the match (requires 4–12 players). |
-| `game:playAgain` | `{}` | Host resets a `GAME_OVER` room back to `LOBBY`. |
-| `night:wolfVote` | `{ targetId: string \| null }` | Alive Werewolf votes on pack victim. |
-| `night:action` | `{ actionType: 'SEER_INSPECT' \| 'GUARD_PROTECT' \| 'WITCH_HEAL' \| 'WITCH_POISON' \| 'BLACK_WOLF_INFECT' \| 'WHITE_WOLF_KILL'; targetId?: string }` | Submits special role night action. |
-| `night:littleGirlPeek` | `{ peeking: boolean }` | Little Girl toggles spying on Werewolf chat. |
-| `day:skipVote` | `{}` | Alive player toggles vote to end `DAY_DISCUSSION` early. |
+| `room:create` | `{ nickname: string; avatar: string; color: string; sessionToken?: string }` | Creates room and assigns sender as Host. |
+| `room:join` | `{ roomCode: string; nickname: string; avatar: string; color: string; sessionToken?: string }` | Joins an existing 4–16 seat lobby or restores session via `sessionToken`. |
+| `room:reconnect` | `{ roomCode: string; sessionToken: string }` | Restores exact seat, secret role, and authorized chat history on refresh. |
+| `lobby:updateConfig` | `{ timers?: Partial<PhaseTimers>; enabledRoles?: Partial<Record<RoleType, boolean>>; allowWebRTC?: boolean; revealDeadRoles?: boolean }` | Host updates boolean special role toggles, phase timers, or `revealDeadRoles`. |
+| `lobby:addBot` | `{}` | Host adds an AI bot (up to 16 seats). |
+| `lobby:removePlayer` | `{ playerId: string }` | Host removes a player/bot in `LOBBY`. |
+| `game:start` | `{}` | Host starts match (`4..16` players required) using `buildRoleDeck`. |
+| `game:playAgain` | `{}` | Host resets `GAME_OVER` room back to `LOBBY`. |
+| `night:wolfVote` | `{ targetId: string \| null }` | Alive wolf-pack member (including White Wolf) votes on pack victim. |
+| `night:action` | `{ actionType: NightActionType; targetId?: string \| null }` | Submits Seer, Guard, Witch, Black Wolf, Mystic Wolf, White Wolf, or Arsonist night action. |
+| `night:littleGirlPeek` | `{ peeking: boolean }` | Little Girl toggles spying on `wolves` chat. |
+| `day:skipVote` | `{}` | Alive player votes to end `DAY_DISCUSSION` early. |
 | `day:vote` | `{ targetId: string \| 'SKIP' \| null }` | Alive player casts elimination vote during `DAY_VOTING`. |
-| `hunter:shoot` | `{ targetId: string }` | Dying Hunter shoots a target within the 15s revenge window. |
-| `chat:send` | `{ content: string; channel: 'PUBLIC' \| 'WOLF' \| 'GHOST' }` | Sends a message to the appropriate authorized channel. |
-| `chat:typing` | `{ isTyping: boolean }` | Broadcasts typing indicator on the player's campfire seat. |
-| `webrtc:signal` | `{ toPlayerId: string; signal: unknown }` | Relays push-to-talk WebRTC peer signaling. |
-| `webrtc:speaking` | `{ isSpeaking: boolean }` | Updates voice speaking aura around player avatar. |
+| `hunter:shoot` | `{ targetId: string }` | Dying Hunter selects target within 15s revenge window. |
+| `chat:send` | `{ roomId?: string; content: string; channel?: 'public' \| 'wolves' \| 'dead' }` | Sends message on an authorized channel. |
+| `chat:typing` / `webrtc:speaking` | `{ isTyping: boolean }` / `{ isSpeaking: boolean }` | Updates campfire seat typing / PTT speaking badges. |
+| `webrtc:signal` | `{ toPlayerId: string; signal: unknown }` | Relays peer WebRTC signaling. |
 
 ### Server → Client Events
 
 | Event Name | Payload Type | Description |
 | :--- | :--- | :--- |
-| `room:state` | `SanitizedRoomState` | Per-player sanitized room snapshot sent on every state/phase change. |
-| `room:joined` | `{ roomCode: string; playerId: string; sessionToken: string }` | Confirms room creation/join and provides persistent `sessionToken`. |
-| `room:error` | `{ code: string; message: string }` | Validation or permission error notification. |
-| `chat:message` | `ChatMessage` | Delivered only to authorized recipients (Public, Wolf/LittleGirl-peeking, or Ghost). |
-| `night:wolfAlert` | `{ suspicionLevel: number; message: string }` | Alerts Werewolves when the Little Girl's peeking triggers a detection roll. |
-| `sound:cue` | `{ cue: 'NIGHTFALL' \| 'DAWN_ROOSTER' \| 'WOLF_HOWL' \| 'GAVEL' \| 'HUNTER_SHOT' \| 'VICTORY' }` | Triggers Web Audio API synthesized sound effect on client. |
-| `webrtc:signal` | `{ fromPlayerId: string; signal: unknown }` | Relays WebRTC offer/answer/ICE candidate. |
+| `room:state` | `SanitizedRoomState` | Individually sanitized state snapshot per connected player. |
+| `room:joined` | `{ roomCode: string; playerId: string; sessionToken: string }` | Confirms room membership and persistent `sessionToken`. |
+| `room:error` | `{ code: string; message: string }` | Server validation or authorization rejection. |
+| `chat:message` | `ChatMessage` | Routed exclusively to authorized sockets (`public`, `wolves`, `dead`, `system`). |
+| `night:wolfAlert` | `{ suspicionLevel: number; message: string }` | Alerts wolves when Little Girl's peeking exposure triggers detection. |
+| `sound:cue` | `{ cue: SoundCueType }` | Synchronized Web Audio API sound effect trigger. |
+| `webrtc:signal` | `{ fromPlayerId: string; signal: unknown }` | Relays peer signaling payload. |
 
 ---
 
-## 5. Security Boundaries & Anti-Cheat Design
+## 6. Security Boundaries & Anti-Cheat Design
 
-### 1. Strict Per-Player State Sanitization (`sanitizeStateForPlayer`)
-The server **never** uses `io.to(roomCode).emit('room:state', rawRoomState)`. Instead, whenever state changes, the server iterates over every connected socket in the room and emits `sanitizeStateForPlayer(roomState, viewerPlayerId)`.
-
-#### Role Visibility Rules
-For each `targetPlayer` in `roomState.players`:
-- `role` and `faction` are revealed **only** if at least one of the following holds:
-  1. `targetPlayer.id === viewerPlayerId` (players always know their own current role).
-  2. Both `viewer` and `targetPlayer` belong to the Werewolf pack (`WEREWOLF`, `BLACK_WOLF`, `WHITE_WOLF`). *Note: `WHITE_WOLF` is masked as `WEREWOLF` to other pack members so their betrayal remains secret until `GAME_OVER` or death.*
-  3. `roomState.phase === 'GAME_OVER'` (all roles revealed at match end).
-  4. `!viewer.isAlive` (dead players enter Spectator mode and can see roles).
-  5. `!targetPlayer.isAlive` (dead players have their roles publicly revealed upon death at Dawn or Execution).
-  6. `viewer.role === 'SEER'` and `viewer.knownRoles[targetPlayer.id]` has been unlocked via a night inspection.
-- In all other cases, `targetPlayer.role` is stripped to `'UNKNOWN'` and `targetPlayer.faction` to `'UNKNOWN'`.
-
-#### Secret Action & Potion Masking
-- `wolfVotes` are only included in `SanitizedRoomState` if `viewer` is an alive Wolf pack member or dead spectator / `GAME_OVER`.
-- `wolfVictimId` is only exposed during `NIGHT_PHASE` to:
-  - Alive Werewolf pack members,
-  - Alive `WITCH` (so she can decide whether to use her Heal Potion),
-  - Alive `BLACK_WOLF` (so they can decide whether to use their single-use Infection).
-- `witchState` (`healUsed`, `poisonUsed`) is only visible to the `WITCH` (and dead spectators / `GAME_OVER`).
-- `guardLastProtectedId` is only visible to the `GUARD`.
-- `littleGirlExposure` is only visible to the `LITTLE_GIRL`.
-
-### 2. Channel Authorization & Anonymization
-- **Werewolf Chat (`WOLF`):**
-  - Only living Werewolf pack members (`WEREWOLF`, `BLACK_WOLF`, `WHITE_WOLF`) can send messages during `NIGHT_PHASE`.
-  - Living Werewolves receive the full message with sender nickname.
-  - If an alive `LITTLE_GIRL` currently has `isPeeking === true`, she receives the message with `senderName` anonymized as `"Wolf 1"`, `"Wolf 2"`, etc. (deterministic per-night wolf alias map) and `senderId: 'ANONYMOUS_WOLF'`.
-- **Ghost Chat (`GHOST`):**
-  - Only dead players (`!player.isAlive`) can send or receive `GHOST` channel messages.
-- **Public Chat (`PUBLIC`):**
-  - Only living players (`player.isAlive`) can send messages during `DAY_DISCUSSION` / `DAY_VOTING` / `LOBBY`. All players in the room receive them.
-
-### 3. Reconnection & Session Security
-- On join, the server issues a cryptographically random `sessionToken` (`crypto.randomUUID()`).
-- Clients persist `{ roomCode, playerId, sessionToken }` in `sessionStorage`.
-- On socket disconnect, the player is marked `isConnected = false`, keeping their seat and role intact.
-- When `room:reconnect` is received with a matching `sessionToken`, the server rebinds the new `socket.id` to the existing `PlayerState` and immediately sends a fresh `sanitizeStateForPlayer(roomState, playerId)` snapshot.
+1. **Strict State Sanitization (`sanitizeStateForPlayer(roomState, playerId)`):**
+   - Never broadcasts raw `RoomState`. Every player receives a customized `SanitizedRoomState` where every other player's `role` and `faction` default to `"UNKNOWN"` unless:
+     1. `target.id === viewer.id` (self).
+     2. Both `viewer` and `target` belong to the Qətil / wolf pack (`WEREWOLF`, `BLACK_WOLF`, `MYSTIC_WOLF`, `WHITE_WOLF`). **White Wolf (`WHITE_WOLF`) is masked as `"WEREWOLF"` (`"WEREWOLF"` faction) to fellow wolves.**
+     3. `roomState.phase === 'GAME_OVER'`.
+     4. `!viewer.isAlive` (dead Spectator mode).
+   - **Private Intel Isolation:**
+     - `knownRoles` (exact inspected roles) are populated only on `SEER`'s private `selfSecret`.
+     - `mysticWolfInspections` (`targetId -> boolean`) exposes **only** whether inspected players hold a special Normal/Tərəfsiz power—never their role name—and is sent only to `MYSTIC_WOLF`.
+     - `arsonistDousedTargetIds` is sent only to `ARSONIST` (plus dead spectators / `GAME_OVER`).
+     - `witchPotions`, `currentWolfTargetId`, `wolfVotes`, `blackWolfInfectionAvailable`, `lastProtectedPlayerId`, and `exposureLevel` are strictly scoped to their authorized owners.
+2. **Channel Isolation (`ChatAuthorization.ts`):**
+   - `public`: Readable by all; writable only by alive players outside `NIGHT_PHASE`.
+   - `wolves`: Readable/writable during `NIGHT_PHASE` only by alive wolf-pack members; peeking `LITTLE_GIRL` receives a read-only stream with sender anonymized as `"Canavar ???"`.
+   - `dead`: Readable/writable by eliminated players anytime without living players seeing messages.
+3. **Session Security:** Cryptographically random `sessionToken` stored in browser `sessionStorage` prevents seat hijacking on reconnect.

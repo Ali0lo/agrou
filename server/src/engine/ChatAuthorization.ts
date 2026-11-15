@@ -3,28 +3,19 @@ import { isWolfPackRole } from './roles/RoleStrategy.js';
 
 export const CHANNEL_BADGES: Record<ChatChannel, string> = {
   public: '💬 Ümumi',
-  wolves: '🐺 Canavarlar',
-  siblings: '👥 Qardaşlar',
-  lovers: '💘 Aşiqlər',
+  wolves: '🐺 Qətil Çatı',
   dead: '👻 Ruhlar',
   system: '🔥 Sistem',
 };
 
 /**
- * Normalizes incoming channel identifiers (including legacy uppercase names)
- * into canonical lowercase ChatChannel values.
+ * Normalizes incoming channel identifiers into canonical lowercase ChatChannel values.
  */
 export function normalizeChatChannel(raw?: string): ChatChannel {
   switch ((raw ?? '').trim().toLowerCase()) {
     case 'wolves':
     case 'wolf':
       return 'wolves';
-    case 'siblings':
-    case 'sisters':
-      return 'siblings';
-    case 'lovers':
-    case 'lover':
-      return 'lovers';
     case 'dead':
     case 'ghost':
     case 'ghosts':
@@ -48,11 +39,10 @@ export function canReadChannel(
   switch (channel) {
     case 'public':
     case 'system':
-      // Everyone in the room (alive + dead) can read public chat & system announcements
       return true;
 
     case 'wolves': {
-      // 1. Alive Werewolf-team roles (including infected players & transformed Wild Child)
+      // 1. Alive Qətil / wolf-pack roles (including infected players & White Wolf)
       if (player.isAlive && isWolfPackRole(player.role)) {
         return true;
       }
@@ -61,7 +51,6 @@ export function canReadChannel(
         room.phase === 'NIGHT_PHASE' &&
         player.isAlive &&
         player.role === 'LITTLE_GIRL' &&
-        !room.villagePowersLost &&
         player.isPeeking
       ) {
         return true;
@@ -69,35 +58,9 @@ export function canReadChannel(
       return false;
     }
 
-    case 'siblings':
-      // Only alive players assigned the Qardaşlar (SISTERS) role
-      return player.isAlive && player.role === 'SISTERS';
-
-    case 'lovers':
-      // Only the two alive players linked by Kupidon (Cupid)
-      return (
-        player.isAlive &&
-        player.loverPartnerId !== null &&
-        room.lovers !== null &&
-        room.lovers.includes(player.id)
-      );
-
-    case 'dead': {
-      // 1. All eliminated (dead) players at any time (Day or Night)
-      if (!player.isAlive) {
-        return true;
-      }
-      // 2. Alive Medium (Ruhçağıran) during NIGHT_PHASE
-      if (
-        room.phase === 'NIGHT_PHASE' &&
-        player.isAlive &&
-        player.role === 'MEDIUM' &&
-        !room.villagePowersLost
-      ) {
-        return true;
-      }
-      return false;
-    }
+    case 'dead':
+      // Eliminated players can read & talk anytime
+      return !player.isAlive;
   }
 }
 
@@ -130,45 +93,13 @@ export function canWriteToChannel(
       if (!player.isAlive || !isWolfPackRole(player.role)) {
         return {
           allowed: false,
-          error: 'Yalnız sağ qalan Canavarlar bu kanala yaza bilər.',
+          error: 'Yalnız sağ qalan Qətillər bu kanala yaza bilər.',
         };
       }
       if (room.phase !== 'NIGHT_PHASE') {
         return {
           allowed: false,
-          error: 'Canavarlar çatı yalnız Gecə fazasında aktivdir.',
-        };
-      }
-      return { allowed: true };
-    }
-
-    case 'siblings': {
-      if (!player.isAlive || player.role !== 'SISTERS') {
-        return {
-          allowed: false,
-          error: 'Yalnız sağ qalan Qardaşlar (Two Sisters) bu kanala yaza bilər.',
-        };
-      }
-      return { allowed: true };
-    }
-
-    case 'lovers': {
-      if (
-        !player.isAlive ||
-        !player.loverPartnerId ||
-        !room.lovers ||
-        !room.lovers.includes(player.id)
-      ) {
-        return {
-          allowed: false,
-          error: 'Yalnız sağ qalan Aşiqlər (Lovers) bu kanala yaza bilər.',
-        };
-      }
-      const partner = room.players.find((p) => p.id === player.loverPartnerId);
-      if (!partner || !partner.isAlive) {
-        return {
-          allowed: false,
-          error: 'Digər aşiq həyatda deyil.',
+          error: 'Qətil çatı yalnız Gecə fazasında aktivdir.',
         };
       }
       return { allowed: true };
@@ -178,17 +109,9 @@ export function canWriteToChannel(
       if (!player.isAlive) {
         return { allowed: true };
       }
-      if (
-        room.phase === 'NIGHT_PHASE' &&
-        player.isAlive &&
-        player.role === 'MEDIUM' &&
-        !room.villagePowersLost
-      ) {
-        return { allowed: true };
-      }
       return {
         allowed: false,
-        error: 'Yalnız ölən oyunçular (və gecə Ruhçağıran) Ruhlar kanalına yaza bilər.',
+        error: 'Yalnız ölən oyunçular Ruhlar kanalına yaza bilər.',
       };
     }
 
@@ -220,10 +143,11 @@ export function formatMessageForRecipient(
     recipient.role === 'LITTLE_GIRL' &&
     !isWolfPackRole(recipient.role)
   ) {
+    const alias = room.wolfAliasMap[msg.senderId] ?? 'Wolf 1';
     return {
       ...msg,
       senderId: 'ANONYMOUS_WOLF',
-      senderName: 'Canavar ???',
+      senderName: alias,
       senderColor: '#f43f5e',
       isAnonymized: true,
     };

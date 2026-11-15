@@ -1,27 +1,30 @@
 # 🔥 Campfire Wolves
 
-An *Agrou*-inspired, real-time multiplayer social deduction browser game for **4 to 12 players**, built with **React + TypeScript + Tailwind CSS + Framer Motion** on the frontend and an authoritative **Node.js + Express + Socket.io** engine on the backend.
+An *Agrou*-inspired, real-time multiplayer social deduction browser game for **4 to 16 players**, built with **React + TypeScript + Tailwind CSS + Framer Motion** on the frontend and an authoritative **Node.js + Express + Socket.io** engine on the backend.
 
 ---
 
 ## ✨ Features
 
-- **Cozy-Yet-Eerie Campfire Arena:** Radial trigonometric seating (`sin`/`cos`) around an animated SVG campfire strictly centered at `(50%, 50%)` that dynamically shifts between warm daytime embers and deep indigo moonlight.
-- **Host Lobby Setting — Reveal Dead Players' Roles (`revealDeadRoles`):** Toggle whether eliminated players' roles are revealed (`"Ölən oyunçuların rolunu göstər"`) or kept hidden (`"Rolu gizlidir 🔒"`) until the end of the match (with Medium / Ruhçağıran able to inspect dead players' hidden roles at night).
-- **Server-Authoritative Anti-Cheat:** All phase timers, vote tallies, and night resolutions run exclusively on the server. Each player receives an individually sanitized state snapshot via `sanitizeStateForPlayer(roomState, playerId)`—hidden roles are stripped to `"UNKNOWN"` unless authorized.
-- **All 22 Classic Agrou / Werewolf Roles Across 3 Factions:**
-  - **A. Kəndlilər / Village Team (12 Roles):** Kəndli (*Villager*), Kahin (*Seer*), Mühafizəçi (*Bodyguard*), Cadugər (*Witch*), Ovçu (*Hunter*), Kupidon (*Cupid*), Kiçik Qız (*Little Girl*), Ağsaqqal (*Elder* — 2 lives vs. wolves), Qarğa (*Crow* — +2 vote curse), Qardaşlar (*Two Sisters / Brothers*), Ruhçağıran (*Medium* — talks with ghosts & inspects dead roles), Tülkü (*Fox* — sniffs 3 adjacent seats).
-  - **B. Canavarlar / Werewolf Team (5 Roles):** Canavar (*Werewolf*), Böyük Qara Canavar (*Big Bad Wolf* — extra kill until a wolf dies), Yoluxucu Ata Canavar (*Infectious Father of Wolves* — 1x secret infection), Görücü Canavar (*Wolf Seer*), Ağ Canavar (*White Werewolf* — solo betrayer).
-  - **C. Neytral & Xüsusi Rollar / Neutral & Special (5 Roles):** Oğru (*Thief* — Night 1 card swap), Vəhşi Uşaq (*Wild Child* — Role Model conversion), Təlxək / Dəli (*Jester / Fool* — wins if voted out), Zərbəçi / Qatil (*Serial Killer*), Bələdiyyə Başçısı / Şerif (*Mayor / Sheriff* — 2x vote weight & tie-breaker).
-- **Multi-Channel Chat & Audio:** Public Campfire Chat, private red-tinted Werewolf Pack Chat (with anonymized `"Wolf 1"`, `"Wolf 2"` spying for a peeking Little Girl), Ghost Chat for dead spectators, push-to-talk indicators, and zero-dependency synthesized Web Audio API sound effects.
-- **Seamless Reconnection & AI Bots:** Automatic mid-match seat & role restoration on browser refresh via `sessionStorage`, plus 1-click AI bots so you can test or fill 4–12 player lobbies anytime.
+- **Cozy-Yet-Eerie Campfire Arena (4–16 Seats):** Dynamic radial trigonometric seating (`sin`/`cos`) around an animated SVG campfire strictly centered at `(50%, 50%)` that shifts between warm daytime embers and deep indigo moonlight while scaling cleanly up to 16 players.
+- **Automatic Faction Distribution & Boolean Role Builder:**
+  - Host toggles special roles strictly **ON / OFF** (maximum **1** per special role per match — no manual counters).
+  - On match start, the server reads the connected player count (`4–16`), enforces the exact **Normal / Qətil / Tərəfsiz** faction quota table, overflows any disabled Tərəfsiz shortage into Normal, and automatically fills remaining slots with base **Villager** / **Werewolf** roles.
+- **Host Lobby Setting — Reveal Dead Players' Roles (`revealDeadRoles`):** Toggle whether eliminated players' roles are revealed (`"Ölən oyunçuların rolunu göstər"`) or kept hidden (`"Rolu gizlidir 🔒"`) until Game Over.
+- **Server-Authoritative Anti-Cheat:** All phase timers, vote tallies, and night resolutions run exclusively on the server. Each client receives an individually sanitized state snapshot via `sanitizeStateForPlayer(roomState, playerId)`—hidden roles are masked as `"UNKNOWN"` unless authorized (`White Wolf` appears as a standard `Werewolf` to teammates).
+- **12 Playable Roles Across 3 Teams:**
+  - **Normal (Village — 6 Roles):** Kəndli (*Villager* filler), Kahin (*Seer*), Cadugər (*Witch* — Heal + Poison), Mühafizəçi (*Guard*), Ovçu (*Hunter* — 15s dying shot), Kiçik Qız (*Little Girl* — anonymized peek at Qətil chat).
+  - **Qətil (Werewolves — 3 Roles):** Canavar (*Werewolf* filler), Qara Canavar (*Black Wolf* — 1x infect pack target into Werewolf), Mistik Canavar (*Mystic Wolf* — checks whether a non-wolf holds a special power or is a base Villager).
+  - **Tərəfsiz (Neutral — 3 Roles):** Mələk (*Angel* — wins if voted out Day 1; converts to Villager at Night 2), Ağ Canavar (*White Wolf* — betrays fellow wolves on even nights, sole survivor win), Alovçu (*Arsonist* — Douse targets over multiple nights, Ignite all doused simultaneously, sole survivor win).
+- **Multi-Channel Chat & Audio:** Public Campfire Chat (`public`), private red-tinted Qətil Pack Chat (`wolves`, with anonymized `Wolf 1`, `Wolf 2` spying for a peeking Little Girl), Ghost Chat (`dead`) for eliminated spectators, speaking/typing indicators, and synthesized Web Audio API sound effects.
+- **Seamless Reconnection & AI Bots:** Mid-match refresh restoration via `sessionStorage`, plus 1-click AI bots in the lobby to test or fill 4–16 player rooms anytime.
 
 ---
 
 ## 🚀 Quick Start & Usage
 
 ### 1. Prerequisites
-- **Node.js** `v18+` (tested with `v20` / `v24`)
+- **Node.js** `v18+`
 - **npm** `v9+`
 
 ### 2. Install Dependencies
@@ -32,21 +35,19 @@ npm install
 ```
 
 ### 3. Start the Development Servers
-You can launch both the backend and frontend together with a single command:
+Launch both backend and frontend together:
 
 ```bash
 npm run dev
 ```
 
-Or run them in two separate terminal tabs:
+Or run in separate terminals:
 
 ```bash
-# Terminal 1 — Start the Socket.io backend server on http://localhost:4000
+# Terminal 1 — Authoritative Socket.io server on http://localhost:4000
 npm run dev:server
-```
 
-```bash
-# Terminal 2 — Start the Vite + React frontend on http://localhost:5173
+# Terminal 2 — Vite + React frontend on http://localhost:5173
 npm run dev:client
 ```
 
@@ -54,45 +55,16 @@ Then open **http://localhost:5173** in your browser.
 
 ---
 
-## 🎮 How to Play
-
-1. **Create or Join a Campfire Room (`LOBBY`):**
-   - Pick your nickname, woodland avatar emoji, and seat aura color.
-   - Click **Create New Campfire Room** to become the Host and receive a 5-character room code (e.g., `#K7M4P`) and a one-click **Invite Link** (`?room=K7M4P`) to share with friends.
-   - Playing solo or short a few friends? Click **+ Add Bot** in the Host panel to populate seats up to 4–12 players.
-   - Customize the **Role Deck** counts and **Phase Timers** (Night, Day Discussion, Day Voting), then click **Start Match**.
-2. **Role Reveal (`ROLE_REVEAL` — 8s):**
-   - Watch your 3D tarot card flip to reveal your secret Role, Faction, and Win Condition.
-   - Click **Role Guide** in the top navigation bar at any time during the match to inspect all role mechanics.
-3. **Night Phase (`NIGHT_PHASE` — 30s default):**
-   - **Werewolves:** Plot in the **Wolf Pack** chat tab and click a player seat around the campfire to vote on who to devour.
-   - **Black Wolf:** Can click **Infect Victim (1x per game)** to convert the pack's target into a Werewolf instead of killing them.
-   - **White Wolf:** On even nights (Night 2, 4, 6...), can toggle **Betray Fellow Wolf** and click another Werewolf seat to secretly eliminate them.
-   - **Seer:** Click any living player seat to immediately inspect their true role.
-   - **Guard:** Click any living player seat to protect them from Werewolf attacks tonight (cannot protect the same player two nights in a row).
-   - **Witch:** Sees who the Werewolves are currently targeting and can use a single-use **Heal Potion** to save them or **Poison Potion** to eliminate any player (bypasses Guard protection).
-   - **Little Girl:** Toggle **Peek at Werewolf Chat** to spy on anonymized Wolf messages (`Wolf 1`, `Wolf 2`), but watch your **Exposure %** meter—each second peeking risks alerting the Wolves!
-4. **Dawn Summary (`DAWN_SUMMARY` — 8s):**
-   - Announces who perished in the night (revealing their role) or celebrates a peaceful sunrise.
-   - If the **Hunter** died, a 15-second **Hunter's Final Revenge** window triggers so the Hunter can shoot one living player.
-5. **Day Discussion (`DAY_DISCUSSION` — 90s default):**
-   - Debate in the public **Campfire** chat (or **Ghost Chat** if eliminated).
-   - Click **End Discussion Early**—if `>50%` of living players agree, the game skips straight to voting.
-6. **Day Tribunal Vote (`DAY_VOTING` — 30s default) & Execution (`EXECUTION_REVEAL` — 6s):**
-   - Click a suspect's seat around the campfire to cast your elimination vote, or click **Skip Vote**.
-   - Live vote counts appear next to each avatar. Ties result in no elimination.
-7. **Game Over (`GAME_OVER`):**
-   - Full role reveal, winning faction celebration, **Campfire MVP Awards**, and a **Play Again (Same Lobby)** button for the Host.
-
----
-
-## 🧪 Building & Running Tests
+## 🧪 Building, Linting & Running Tests
 
 ```bash
-# Run the Vitest unit test suite (role resolution edge cases, sanitization, win conditions)
+# Run the Vitest unit test suite (quotas 4..16, role mechanics, sanitization, chat rules)
 npm test
 
-# Type-check and build both /server and /client for production
+# Type-check both server and client workspaces
+npm run lint
+
+# Build production artifacts for both /server and /client
 npm run build
 ```
 
@@ -102,20 +74,22 @@ npm run build
 
 ```text
 agrou/
-├── ARCHITECTURE.md           # State machine diagram, WebSocket contracts & security design
+├── ARCHITECTURE.md           # State machine, 4-16 quota deck-builder, WS contracts & security
 ├── README.md                 # Usage & setup documentation
-├── package.json              # Root workspace scripts (build, test, dev:server, dev:client)
+├── package.json              # Root workspace scripts (build, test, lint, dev)
 ├── server/                   # Authoritative Node.js + Express + Socket.io backend
 │   ├── src/
 │   │   ├── index.ts          # Express + Socket.io server entry
+│   │   ├── constants/        # Automatic 4-16 quota table & 12-role metadata
 │   │   ├── types/game.ts     # Domain & state interfaces
 │   │   ├── engine/           # GameEngine, RoomManager, StateSanitizer, WinConditionChecker
-│   │   │   └── roles/        # Strategy/Command pattern per role + NightResolver
+│   │   │   └── roles/        # Strategy pattern per role + NightResolver
 │   │   └── socket/           # Real-time WebSocket event handlers
-│   └── tests/engine.test.ts  # 16 unit tests for role resolution & security rules
+│   └── tests/engine.test.ts  # Comprehensive unit tests for quotas, roles & security
 └── client/                   # Vite + React + TypeScript + Tailwind CSS + Framer Motion UI
     └── src/
         ├── App.tsx           # Main application & Socket.io lifecycle
-        ├── components/       # CampfireArena, CampfireSvg, ChatPanel, LobbyConfigPanel, etc.
+        ├── constants/        # Quota preview calculator & 12-role catalog
+        ├── components/       # CampfireArena, LobbyConfigPanel, PhaseActionToolbar, ChatPanel, etc.
         └── services/         # Web Audio API sound synthesizer & sessionStorage persistence
 ```

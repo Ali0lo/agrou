@@ -251,7 +251,6 @@ export class RoomManager {
     });
 
     room.players.push(bot);
-    this.autoBalanceRoleDeckCount(room);
     this.broadcastSanitizedState(room.roomCode);
     return {};
   }
@@ -275,7 +274,6 @@ export class RoomManager {
       p.seatIndex = idx;
     });
 
-    this.autoBalanceRoleDeckCount(room);
     this.broadcastSanitizedState(room.roomCode);
     return {};
   }
@@ -285,7 +283,7 @@ export class RoomManager {
     requesterId: string,
     configUpdate: {
       timers?: Partial<PhaseTimers>;
-      enabledRoles?: Partial<Record<RoleType, number>>;
+      enabledRoles?: Partial<Record<RoleType, boolean>>;
       allowWebRTC?: boolean;
       revealDeadRoles?: boolean;
     }
@@ -335,11 +333,14 @@ export class RoomManager {
     }
 
     if (configUpdate.enabledRoles) {
-      for (const [role, count] of Object.entries(configUpdate.enabledRoles)) {
-        room.config.enabledRoles[role as RoleType] = Math.max(
-          0,
-          Math.min(16, Math.floor(count ?? 0))
-        );
+      for (const [role, enabled] of Object.entries(configUpdate.enabledRoles)) {
+        const key = role as RoleType;
+        // Base filler roles (VILLAGER & WEREWOLF) always remain enabled to fill quotas
+        if (key === 'VILLAGER' || key === 'WEREWOLF') {
+          room.config.enabledRoles[key] = true;
+        } else {
+          room.config.enabledRoles[key] = Boolean(enabled);
+        }
       }
     }
 
@@ -353,18 +354,6 @@ export class RoomManager {
 
     this.broadcastSanitizedState(room.roomCode);
     return {};
-  }
-
-  private autoBalanceRoleDeckCount(room: RoomState): void {
-    const playerCount = Math.max(4, room.players.length);
-    const nonVillagerTotal = Object.entries(room.config.enabledRoles)
-      .filter(([r]) => r !== 'VILLAGER')
-      .reduce((acc, [, val]) => acc + val, 0);
-
-    room.config.enabledRoles.VILLAGER = Math.max(
-      0,
-      playerCount - nonVillagerTotal
-    );
   }
 
   public startGame(roomCode: string, requesterId: string): { error?: string } {
@@ -755,7 +744,7 @@ export class RoomManager {
 
   /**
    * Authoritative chat routing with strict server-side channel isolation:
-   * ('public' | 'wolves' | 'siblings' | 'lovers' | 'dead')
+   * ('public' | 'wolves' | 'dead')
    */
   public handleChatMessage(params: {
     roomCode: string;
@@ -780,31 +769,15 @@ export class RoomManager {
       return { error: authCheck.error ?? 'Bu kanala yazmaq icazəniz yoxdur.' };
     }
 
-    const isLivingMediumAtNight =
-      channel === 'dead' &&
-      sender.isAlive &&
-      sender.role === 'MEDIUM' &&
-      !room.villagePowersLost &&
-      room.phase === 'NIGHT_PHASE';
-
     const isSpiritMessage = channel === 'dead' && !sender.isAlive;
 
     let senderName = sender.nickname;
     let senderColor = sender.color;
 
-    if (channel === 'dead') {
-      if (isLivingMediumAtNight) {
-        senderName = `🔮 Ruhçağıran (${sender.nickname})`;
-        senderColor = '#2dd4bf';
-      } else if (isSpiritMessage) {
-        senderName = `👻 Ruh: ${sender.nickname}`;
-      }
+    if (channel === 'dead' && isSpiritMessage) {
+      senderName = `👻 Ruh: ${sender.nickname}`;
     } else if (channel === 'wolves') {
       senderColor = '#fb7185';
-    } else if (channel === 'siblings') {
-      senderColor = '#818cf8';
-    } else if (channel === 'lovers') {
-      senderColor = '#f472b6';
     }
 
     const msg: ChatMessage = {
@@ -920,18 +893,38 @@ export class RoomManager {
           targetId: target.id,
         });
 
-        if (bot.role === 'WOLF_SEER') {
+        if (bot.role === 'MYSTIC_WOLF') {
+          const uninspected = nonWolves.filter(
+            (p) => bot.mysticWolfInspections[p.id] === undefined
+          );
+          const inspectPool = uninspected.length > 0 ? uninspected : nonWolves;
+          const inspectTarget =
+            inspectPool[crypto.randomInt(0, inspectPool.length)];
           GameEngine.submitNightAction(room, bot.id, {
-            actionType: 'WOLF_SEER_INSPECT',
+            actionType: 'MYSTIC_WOLF_INSPECT',
+            targetId: inspectTarget.id,
+          });
+        } else if (
+          bot.role === 'BLACK_WOLF' &&
+          room.blackWolfInfectionAvailable &&
+          crypto.randomInt(0, 3) === 0
+        ) {
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'BLACK_WOLF_INFECT',
             targetId: target.id,
           });
-        } else if (bot.role === 'BIG_BAD_WOLF' && !room.anyWolfHasDied) {
-          const extraTarget =
-            nonWolves.find((p) => p.id !== target.id) ?? target;
-          GameEngine.submitNightAction(room, bot.id, {
-            actionType: 'BIG_BAD_WOLF_KILL',
-            targetId: extraTarget.id,
-          });
+        } else if (bot.role === 'WHITE_WOLF' && room.nightNumber % 2 === 0) {
+          const fellowWolves = alivePlayers.filter(
+            (p) => p.id !== bot.id && isWolfPackRole(p.role)
+          );
+          if (fellowWolves.length > 0) {
+            const betrayalTarget =
+              fellowWolves[crypto.randomInt(0, fellowWolves.length)];
+            GameEngine.submitNightAction(room, bot.id, {
+              actionType: 'WHITE_WOLF_KILL',
+              targetId: betrayalTarget.id,
+            });
+          }
         }
       } else if (bot.role === 'GUARD') {
         const validTargets = alivePlayers.filter(
@@ -959,42 +952,27 @@ export class RoomManager {
             targetId: target.id,
           });
         }
-      } else if (bot.role === 'FOX' && !bot.foxPowerLost) {
-        const target = alivePlayers[crypto.randomInt(0, alivePlayers.length)];
-        GameEngine.submitNightAction(room, bot.id, {
-          actionType: 'FOX_SNIFF',
-          targetId: target.id,
-        });
-      } else if (bot.role === 'CROW') {
-        const others = alivePlayers.filter((p) => p.id !== bot.id);
-        if (others.length > 0) {
-          const target = others[crypto.randomInt(0, others.length)];
+      } else if (bot.role === 'ARSONIST') {
+        const dousedAlive = room.arsonistDousedIds.filter((id) =>
+          alivePlayers.some((p) => p.id === id && p.id !== bot.id)
+        );
+        const undoused = alivePlayers.filter(
+          (p) => p.id !== bot.id && !room.arsonistDousedIds.includes(p.id)
+        );
+
+        if (
+          dousedAlive.length >= 2 ||
+          (dousedAlive.length > 0 && undoused.length === 0) ||
+          (alivePlayers.length <= 4 && dousedAlive.length >= 1)
+        ) {
           GameEngine.submitNightAction(room, bot.id, {
-            actionType: 'CROW_CURSE',
-            targetId: target.id,
+            actionType: 'ARSONIST_IGNITE',
           });
-        }
-      } else if (bot.role === 'SERIAL_KILLER') {
-        const others = alivePlayers.filter((p) => p.id !== bot.id);
-        if (others.length > 0) {
-          const target = others[crypto.randomInt(0, others.length)];
+        } else if (undoused.length > 0) {
+          const target = undoused[crypto.randomInt(0, undoused.length)];
           GameEngine.submitNightAction(room, bot.id, {
-            actionType: 'SERIAL_KILLER_KILL',
+            actionType: 'ARSONIST_DOUSE',
             targetId: target.id,
-          });
-        }
-      } else if (bot.role === 'CUPID' && room.nightNumber === 1 && alivePlayers.length >= 2) {
-        GameEngine.submitNightAction(room, bot.id, {
-          actionType: 'CUPID_LINK',
-          targetId: alivePlayers[0].id,
-          secondTargetId: alivePlayers[1].id,
-        });
-      } else if (bot.role === 'WILD_CHILD' && room.nightNumber === 1) {
-        const others = alivePlayers.filter((p) => p.id !== bot.id);
-        if (others.length > 0) {
-          GameEngine.submitNightAction(room, bot.id, {
-            actionType: 'WILD_CHILD_MODEL',
-            targetId: others[0].id,
           });
         }
       }

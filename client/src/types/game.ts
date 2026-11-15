@@ -3,32 +3,21 @@ import { ROLE_CATALOG } from '../constants/roles';
 export { ROLE_CATALOG };
 
 export type RoleType =
-  // A. Village Team (12 Roles)
+  // Normal (Village Team)
   | 'VILLAGER'
   | 'SEER'
-  | 'GUARD'
   | 'WITCH'
+  | 'GUARD'
   | 'HUNTER'
-  | 'CUPID'
   | 'LITTLE_GIRL'
-  | 'ELDER'
-  | 'CROW'
-  | 'SISTERS'
-  | 'MEDIUM'
-  | 'FOX'
-  // B. Werewolf Team (5 Roles)
+  // Qətil (Werewolf Team)
   | 'WEREWOLF'
-  | 'BIG_BAD_WOLF'
   | 'BLACK_WOLF'
-  | 'WOLF_SEER'
+  | 'MYSTIC_WOLF'
+  // Tərəfsiz (Neutral Team)
+  | 'ANGEL'
   | 'WHITE_WOLF'
-  // C. Neutral / Solo & Special Roles (5 Roles + ANGEL)
-  | 'THIEF'
-  | 'WILD_CHILD'
-  | 'JESTER'
-  | 'SERIAL_KILLER'
-  | 'MAYOR'
-  | 'ANGEL';
+  | 'ARSONIST';
 
 export type VisibleRoleType = RoleType | 'UNKNOWN';
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL';
@@ -36,12 +25,16 @@ export type VisibleFaction = Faction | 'UNKNOWN';
 export type WinningFaction =
   | 'VILLAGE'
   | 'WEREWOLF'
-  | 'WHITE_WOLF'
-  | 'JESTER'
   | 'ANGEL'
-  | 'SERIAL_KILLER'
-  | 'LOVERS'
+  | 'WHITE_WOLF'
+  | 'ARSONIST'
   | 'NONE';
+
+export interface FactionQuota {
+  normal: number;
+  qetil: number;
+  terefsiz: number;
+}
 
 export type GamePhase =
   | 'LOBBY'
@@ -65,15 +58,9 @@ export interface PhaseTimers {
 
 export interface RoomConfig {
   timers: PhaseTimers;
-  enabledRoles: Record<RoleType, number>;
+  enabledRoles: Record<RoleType, boolean>;
   allowWebRTC: boolean;
   revealDeadRoles: boolean;
-}
-
-export interface FoxSniffResult {
-  centerPlayerId: string;
-  checkedPlayerIds: string[];
-  hasWolf: boolean;
 }
 
 export interface SanitizedPlayerState {
@@ -92,9 +79,6 @@ export interface SanitizedPlayerState {
   deathReason: string | null;
   isSpeaking: boolean;
   isTyping: boolean;
-  isMayor: boolean;
-  isCrowCursed: boolean;
-  isLoverWithSelf: boolean;
 }
 
 export interface WitchPotionsState {
@@ -108,6 +92,8 @@ export interface SanitizedSelfSecretState {
   originalRole: RoleType;
   faction: Faction;
   knownRoles: Record<string, RoleType>;
+  mysticWolfInspections: Record<string, boolean>;
+  arsonistDousedTargetIds: string[];
   lastProtectedPlayerId: string | null;
   isPeeking: boolean;
   exposureLevel: number;
@@ -117,23 +103,14 @@ export interface SanitizedSelfSecretState {
   hasSubmittedNightAction: boolean;
   nightActionSummary: string | null;
   wasInfectedToWolf: boolean;
-  elderLivesRemaining: number;
-  foxPowerLost: boolean;
-  lastFoxSniff: FoxSniffResult | null;
-  loverPartnerId: string | null;
-  roleModelId: string | null;
-  thiefExtraRoles: [RoleType, RoleType] | null;
-  canBigBadWolfKill: boolean;
 }
 
 export type DeathCause =
   | 'WEREWOLVES'
-  | 'BIG_BAD_WOLF'
   | 'WITCH_POISON'
   | 'WHITE_WOLF'
-  | 'SERIAL_KILLER'
+  | 'ARSONIST_IGNITE'
   | 'HUNTER_SHOT'
-  | 'HEARTBREAK'
   | 'EXECUTION';
 
 export interface NightCasualty {
@@ -171,8 +148,6 @@ export interface SanitizedRoomState {
   wolfVotes: Record<string, string | null> | null;
   wolfAlertedThisNight: boolean;
   lastNightCasualties: NightCasualty[];
-  crowCursedPlayerId: string | null;
-  villagePowersLost: boolean;
   skipDiscussionVotes: string[];
   dayVotes: Record<string, string | 'SKIP'>;
   lastExecutedPlayer: NightCasualty | null;
@@ -182,13 +157,7 @@ export interface SanitizedRoomState {
   mvpAwards: MvpAward[];
 }
 
-export type ChatChannel =
-  | 'public'
-  | 'wolves'
-  | 'siblings'
-  | 'lovers'
-  | 'dead'
-  | 'system';
+export type ChatChannel = 'public' | 'wolves' | 'dead' | 'system';
 
 export interface ChatMessage {
   id: string;
@@ -196,7 +165,7 @@ export interface ChatMessage {
   senderName: string;
   senderColor: string;
   channel: ChatChannel;
-  channelBadge?: string;
+  channelBadge: string;
   content: string;
   timestamp: number;
   isAnonymized?: boolean;
@@ -210,58 +179,74 @@ export type NightActionType =
   | 'WITCH_POISON'
   | 'GUARD_PROTECT'
   | 'BLACK_WOLF_INFECT'
+  | 'MYSTIC_WOLF_INSPECT'
   | 'WHITE_WOLF_KILL'
-  | 'BIG_BAD_WOLF_KILL'
-  | 'WOLF_SEER_INSPECT'
-  | 'FOX_SNIFF'
-  | 'MEDIUM_INSPECT'
-  | 'CROW_CURSE'
-  | 'CUPID_LINK'
-  | 'WILD_CHILD_MODEL'
-  | 'THIEF_SWAP'
-  | 'SERIAL_KILLER_KILL';
+  | 'ARSONIST_DOUSE'
+  | 'ARSONIST_IGNITE';
 
 export interface NightActionPayload {
   actionType: NightActionType;
   targetId?: string | null;
-  secondTargetId?: string | null;
-  choiceIndex?: 0 | 1;
 }
 
 export type ActiveNightSubMode =
   | 'DEFAULT'
   | 'WITCH_POISON'
   | 'WHITE_WOLF_KILL'
-  | 'BIG_BAD_WOLF_KILL'
-  | 'WOLF_SEER_INSPECT'
+  | 'MYSTIC_WOLF_INSPECT'
   | null;
 
 export interface RoleInfo {
   role: RoleType;
   name: string;
   nameAz: string;
-  nameEn: string;
+  displayName: string;
   icon: string;
   faction: Faction;
-  colorClass: string;
+  factionLabel: 'Normal' | 'Qətil' | 'Tərəfsiz';
+  isBaseFiller?: boolean;
+  color: string;
   badgeBg: string;
-  description: string;
+  shortDescription: string;
   winCondition: string;
+  abilityGuide: string;
+  nightActionLabel?: string;
 }
 
 export const AVATAR_OPTIONS = [
-  '🦊', '🦉', '🐺', '🦌', '🐻', '🐈‍⬛', '🦔', '🐸', '🦅', '🐿️', '🦡', '🌙',
+  '🦊',
+  '🦉',
+  '🐺',
+  '🦌',
+  '🐻',
+  '🦔',
+  '🦇',
+  '🐈‍⬛',
+  '🦅',
+  '🐸',
+  '🐇',
+  '🦡',
+  '🐗',
+  '🦝',
+  '🐿️',
+  '🦢',
 ];
 
 export const COLOR_OPTIONS = [
   '#f97316',
-  '#f59e0b',
-  '#10b981',
-  '#14b8a6',
-  '#3b82f6',
-  '#6366f1',
-  '#8b5cf6',
-  '#ec4899',
   '#ef4444',
+  '#3b82f6',
+  '#10b981',
+  '#a855f7',
+  '#eab308',
+  '#ec4899',
+  '#14b8a6',
+  '#6366f1',
   '#84cc16',
+  '#f43f5e',
+  '#06b6d4',
+  '#d946ef',
+  '#fb923c',
+  '#22d3ee',
+  '#8b5cf6',
 ];

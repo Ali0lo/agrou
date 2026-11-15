@@ -17,14 +17,11 @@ export interface NightResolutionContext {
   room: RoomState;
   protectedPlayerIds: Set<string>;
   wolfVictimId: string | null;
-  bigBadWolfVictimId: string | null;
   witchSavedVictim: boolean;
   poisonedPlayerIds: Set<string>;
   infectedPlayerId: string | null;
   whiteWolfVictimId: string | null;
-  serialKillerVictimId: string | null;
-  crowCursedId: string | null;
-  seerInspection: { seerId: string; targetId: string; role: RoleType } | null;
+  arsonistIgnitedIds: Set<string>;
   casualties: NightCasualty[];
 }
 
@@ -35,6 +32,7 @@ export interface RoleMetadata {
   displayName: string;
   icon: string;
   faction: Faction;
+  factionLabel: 'Normal' | 'Qətil' | 'Tərəfsiz';
   shortDescription: string;
   winCondition: string;
   hasNightAction: boolean;
@@ -59,18 +57,27 @@ export interface RoleStrategy {
   ): void;
 }
 
+/**
+ * Wolf-pack participation (includes White Wolf so they see pack chat and vote with Qətil).
+ */
 export function isWolfPackRole(role: RoleType): boolean {
   return (
     role === 'WEREWOLF' ||
-    role === 'BIG_BAD_WOLF' ||
     role === 'BLACK_WOLF' ||
-    role === 'WOLF_SEER' ||
+    role === 'MYSTIC_WOLF' ||
     role === 'WHITE_WOLF'
   );
 }
 
-export function isHostileNeutralRole(role: RoleType): boolean {
-  return role === 'WHITE_WOLF' || role === 'SERIAL_KILLER';
+/**
+ * Qətil faction win-condition roles (excludes solo White Wolf).
+ */
+export function isQetilFactionRole(role: RoleType): boolean {
+  return role === 'WEREWOLF' || role === 'BLACK_WOLF' || role === 'MYSTIC_WOLF';
+}
+
+export function isLethalNeutralRole(role: RoleType): boolean {
+  return role === 'WHITE_WOLF' || role === 'ARSONIST';
 }
 
 export function getFactionForRole(role: RoleType): Faction {
@@ -86,6 +93,7 @@ export function buildRoleMetadata(role: RoleType): RoleMetadata {
     displayName: def.displayName,
     icon: def.icon,
     faction: def.faction,
+    factionLabel: def.factionLabel,
     shortDescription: def.shortDescription,
     winCondition: def.winCondition,
     hasNightAction: def.hasNightAction,

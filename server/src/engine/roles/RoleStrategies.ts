@@ -7,7 +7,6 @@ import {
 import {
   buildRoleMetadata,
   computeConsensusWolfTarget,
-  getFactionForRole,
   isWolfPackRole,
   NightResolutionContext,
   RoleStrategy,
@@ -20,6 +19,27 @@ function markSubmitted(room: RoomState, playerId: string): void {
   }
 }
 
+function validateWolfVoteTarget(
+  room: RoomState,
+  payload: NightActionPayload
+): ValidationResult {
+  if (payload.targetId) {
+    const target = room.players.find((p) => p.id === payload.targetId);
+    if (!target || !target.isAlive) {
+      return { valid: false, error: 'Qurban canlı oyunçu olmalıdır.' };
+    }
+  }
+  return { valid: true };
+}
+
+function recordWolfVote(
+  room: RoomState,
+  actor: PlayerState,
+  payload: NightActionPayload
+): void {
+  room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
+}
+
 export class PassiveRoleStrategy implements RoleStrategy {
   readonly metadata;
   constructor(role: RoleType) {
@@ -29,7 +49,10 @@ export class PassiveRoleStrategy implements RoleStrategy {
     return false;
   }
   validateNightAction(): ValidationResult {
-    return { valid: false, error: `${this.metadata.displayName} has no active night target ability.` };
+    return {
+      valid: false,
+      error: `${this.metadata.displayName} rolunun gecə hədəf gücü yoxdur.`,
+    };
   }
   recordNightInput(): void {}
   resolveNightAction(): void {}
@@ -42,7 +65,6 @@ export class SeerStrategy implements RoleStrategy {
     return (
       room.phase === 'NIGHT_PHASE' &&
       player.isAlive &&
-      !room.villagePowersLost &&
       !room.nightActions.seerInspectedThisNight
     );
   }
@@ -52,22 +74,19 @@ export class SeerStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost after the Elder was executed!' };
-    }
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'SEER_INSPECT') {
-      return { valid: false, error: 'Invalid action type for Seer.' };
+      return { valid: false, error: 'Kahin üçün yanlış əməliyyat.' };
     }
     if (room.nightActions.seerInspectedThisNight) {
-      return { valid: false, error: 'Seer has already inspected a player tonight.' };
+      return { valid: false, error: 'Kahin bu gecə artıq yoxlama aparıb.' };
     }
     if (!payload.targetId || payload.targetId === actor.id) {
-      return { valid: false, error: 'Seer must select another living player.' };
+      return { valid: false, error: 'Kahin başqa bir canlı oyunçu seçməlidir.' };
     }
     const target = room.players.find((p) => p.id === payload.targetId);
     if (!target || !target.isAlive) {
-      return { valid: false, error: 'Target must be a living player.' };
+      return { valid: false, error: 'Hədəf canlı oyunçu olmalıdır.' };
     }
     return { valid: true };
   }
@@ -87,17 +106,11 @@ export class SeerStrategy implements RoleStrategy {
   }
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    if (context.room.villagePowersLost) return;
     const targetId = context.room.nightActions.seerTargetId;
     if (!targetId) return;
     const target = context.room.players.find((p) => p.id === targetId);
     if (!target) return;
     actor.knownRoles[target.id] = target.role;
-    context.seerInspection = {
-      seerId: actor.id,
-      targetId: target.id,
-      role: target.role,
-    };
   }
 }
 
@@ -105,7 +118,7 @@ export class GuardStrategy implements RoleStrategy {
   readonly metadata = buildRoleMetadata('GUARD');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
+    return room.phase === 'NIGHT_PHASE' && player.isAlive;
   }
 
   validateNightAction(
@@ -113,15 +126,12 @@ export class GuardStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'GUARD_PROTECT') {
-      return { valid: false, error: 'Invalid action type for Guard.' };
+      return { valid: false, error: 'Mühafizəçi üçün yanlış əməliyyat.' };
     }
     if (!payload.targetId) {
-      return { valid: false, error: 'Guard must choose a player to protect.' };
+      return { valid: false, error: 'Qorumaq üçün bir oyunçu seçin.' };
     }
     if (actor.lastProtectedPlayerId && payload.targetId === actor.lastProtectedPlayerId) {
       return {
@@ -131,7 +141,7 @@ export class GuardStrategy implements RoleStrategy {
     }
     const target = room.players.find((p) => p.id === payload.targetId);
     if (!target || !target.isAlive) {
-      return { valid: false, error: 'Guard target must be a living player.' };
+      return { valid: false, error: 'Mühafizə hədəfi canlı oyunçu olmalıdır.' };
     }
     return { valid: true };
   }
@@ -146,7 +156,6 @@ export class GuardStrategy implements RoleStrategy {
   }
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    if (context.room.villagePowersLost) return;
     const targetId = context.room.nightActions.guardTargetId;
     if (!targetId) {
       actor.lastProtectedPlayerId = null;
@@ -169,7 +178,6 @@ export class WitchStrategy implements RoleStrategy {
     return (
       room.phase === 'NIGHT_PHASE' &&
       player.isAlive &&
-      !room.villagePowersLost &&
       (room.witchPotions.healAvailable || room.witchPotions.poisonAvailable)
     );
   }
@@ -179,37 +187,34 @@ export class WitchStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
 
     if (payload.actionType === 'WITCH_HEAL') {
       if (!room.witchPotions.healAvailable) {
-        return { valid: false, error: 'Heal Potion has already been used.' };
+        return { valid: false, error: 'Həyat İksiri artıq işlənib.' };
       }
       const wolfVictimId = computeConsensusWolfTarget(room);
       if (!wolfVictimId) {
-        return { valid: false, error: 'No player is currently targeted by the Werewolves.' };
+        return { valid: false, error: 'Canavarlar hələ heç kimi hədəf almayıb.' };
       }
       return { valid: true };
     }
 
     if (payload.actionType === 'WITCH_POISON') {
       if (!room.witchPotions.poisonAvailable) {
-        return { valid: false, error: 'Poison Potion has already been used.' };
+        return { valid: false, error: 'Ölüm İksiri artıq işlənib.' };
       }
       if (!payload.targetId) {
-        return { valid: false, error: 'Must select a player to poison.' };
+        return { valid: false, error: 'Zəhərləmək üçün oyunçu seçin.' };
       }
       const target = room.players.find((p) => p.id === payload.targetId);
       if (!target || !target.isAlive) {
-        return { valid: false, error: 'Poison target must be a living player.' };
+        return { valid: false, error: 'Zəhər hədəfi canlı oyunçu olmalıdır.' };
       }
       return { valid: true };
     }
 
-    return { valid: false, error: 'Invalid action type for Witch.' };
+    return { valid: false, error: 'Cadugər üçün yanlış əməliyyat.' };
   }
 
   recordNightInput(
@@ -227,7 +232,6 @@ export class WitchStrategy implements RoleStrategy {
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
     const { room } = context;
-    if (room.villagePowersLost) return;
 
     if (
       room.nightActions.witchHealUsedThisNight &&
@@ -256,277 +260,15 @@ export class WitchStrategy implements RoleStrategy {
   }
 }
 
-export class CupidStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('CUPID');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return (
-      room.phase === 'NIGHT_PHASE' &&
-      player.isAlive &&
-      room.nightNumber === 1 &&
-      room.lovers === null
-    );
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.nightNumber !== 1) {
-      return { valid: false, error: 'Cupid only links Lovers on Night 1.' };
-    }
-    if (payload.actionType !== 'CUPID_LINK') {
-      return { valid: false, error: 'Invalid action type for Cupid.' };
-    }
-    const { targetId, secondTargetId } = payload;
-    if (!targetId || !secondTargetId || targetId === secondTargetId) {
-      return { valid: false, error: 'Cupid must select two distinct living players.' };
-    }
-    const p1 = room.players.find((p) => p.id === targetId && p.isAlive);
-    const p2 = room.players.find((p) => p.id === secondTargetId && p.isAlive);
-    if (!p1 || !p2) {
-      return { valid: false, error: 'Both Lovers must be living players.' };
-    }
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    if (!payload.targetId || !payload.secondTargetId) return;
-    room.nightActions.cupidLoverIds = [payload.targetId, payload.secondTargetId];
-    // Apply immediately so Lovers can see their bond
-    const p1 = room.players.find((p) => p.id === payload.targetId);
-    const p2 = room.players.find((p) => p.id === payload.secondTargetId);
-    if (p1 && p2) {
-      // Clear any previous selection on Night 1
-      for (const p of room.players) {
-        p.loverPartnerId = null;
-      }
-      p1.loverPartnerId = p2.id;
-      p2.loverPartnerId = p1.id;
-      room.lovers = [p1.id, p2.id];
-      actor.stats.abilitiesUsed += 1;
-      markSubmitted(room, actor.id);
-    }
-  }
-
-  resolveNightAction(context: NightResolutionContext): void {
-    const pair = context.room.nightActions.cupidLoverIds;
-    if (context.room.nightNumber === 1 && pair && !context.room.lovers) {
-      const p1 = context.room.players.find((p) => p.id === pair[0] && p.isAlive);
-      const p2 = context.room.players.find((p) => p.id === pair[1] && p.isAlive);
-      if (p1 && p2) {
-        p1.loverPartnerId = p2.id;
-        p2.loverPartnerId = p1.id;
-        context.room.lovers = [p1.id, p2.id];
-      }
-    }
-  }
-}
-
-export class CrowStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('CROW');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
-    if (payload.actionType !== 'CROW_CURSE') {
-      return { valid: false, error: 'Invalid action type for Crow.' };
-    }
-    if (!payload.targetId || payload.targetId === actor.id) {
-      return { valid: false, error: 'Crow must select another living player to curse.' };
-    }
-    const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-    if (!target) {
-      return { valid: false, error: 'Crow target must be a living player.' };
-    }
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    room.nightActions.crowTargetId = payload.targetId ?? null;
-    markSubmitted(room, actor.id);
-  }
-
-  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    if (context.room.villagePowersLost) return;
-    const targetId = context.room.nightActions.crowTargetId;
-    if (!targetId) return;
-    const target = context.room.players.find((p) => p.id === targetId && p.isAlive);
-    if (target) {
-      context.crowCursedId = target.id;
-      actor.stats.abilitiesUsed += 1;
-    }
-  }
-}
-
-export class MediumStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('MEDIUM');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return (
-      room.phase === 'NIGHT_PHASE' &&
-      player.isAlive &&
-      !room.villagePowersLost &&
-      !room.nightActions.mediumInspectedThisNight &&
-      room.players.some((p) => !p.isAlive)
-    );
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
-    if (payload.actionType !== 'MEDIUM_INSPECT') {
-      return { valid: false, error: 'Invalid action type for Medium.' };
-    }
-    if (room.nightActions.mediumInspectedThisNight) {
-      return { valid: false, error: 'Medium has already channeled a spirit tonight.' };
-    }
-    const target = room.players.find((p) => p.id === payload.targetId);
-    if (!target || target.isAlive) {
-      return { valid: false, error: 'Medium must select an eliminated (dead) player.' };
-    }
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    const target = room.players.find((p) => p.id === payload.targetId && !p.isAlive);
-    if (!target) return;
-    room.nightActions.mediumTargetId = target.id;
-    room.nightActions.mediumInspectedThisNight = true;
-    actor.knownRoles[target.id] = target.role;
-    actor.stats.abilitiesUsed += 1;
-    markSubmitted(room, actor.id);
-  }
-
-  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    if (context.room.villagePowersLost) return;
-    const targetId = context.room.nightActions.mediumTargetId;
-    if (!targetId) return;
-    const target = context.room.players.find((p) => p.id === targetId && !p.isAlive);
-    if (target) {
-      actor.knownRoles[target.id] = target.role;
-    }
-  }
-}
-
-export class FoxStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('FOX');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return (
-      room.phase === 'NIGHT_PHASE' &&
-      player.isAlive &&
-      !room.villagePowersLost &&
-      !player.foxPowerLost &&
-      !room.nightActions.foxSniffedThisNight
-    );
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.villagePowersLost) {
-      return { valid: false, error: 'Village special powers were lost!' };
-    }
-    if (actor.foxPowerLost) {
-      return { valid: false, error: 'The Fox has lost its scent power for the rest of the game.' };
-    }
-    if (payload.actionType !== 'FOX_SNIFF') {
-      return { valid: false, error: 'Invalid action type for Fox.' };
-    }
-    if (room.nightActions.foxSniffedThisNight) {
-      return { valid: false, error: 'Fox has already sniffed a group tonight.' };
-    }
-    const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-    if (!target) {
-      return { valid: false, error: 'Fox must select a living player.' };
-    }
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    const aliveOrdered = [...room.players]
-      .filter((p) => p.isAlive)
-      .sort((a, b) => a.seatIndex - b.seatIndex);
-    const centerIdx = aliveOrdered.findIndex((p) => p.id === payload.targetId);
-    if (centerIdx === -1) return;
-
-    const leftIdx = (centerIdx - 1 + aliveOrdered.length) % aliveOrdered.length;
-    const rightIdx = (centerIdx + 1) % aliveOrdered.length;
-
-    const trio = Array.from(
-      new Set([
-        aliveOrdered[leftIdx],
-        aliveOrdered[centerIdx],
-        aliveOrdered[rightIdx],
-      ])
-    );
-
-    const hasWolf = trio.some((p) => isWolfPackRole(p.role));
-    actor.lastFoxSniff = {
-      centerPlayerId: aliveOrdered[centerIdx].id,
-      checkedPlayerIds: trio.map((p) => p.id),
-      hasWolf,
-    };
-    if (!hasWolf) {
-      actor.foxPowerLost = true;
-    }
-
-    room.nightActions.foxTargetId = payload.targetId ?? null;
-    room.nightActions.foxSniffedThisNight = true;
-    actor.stats.abilitiesUsed += 1;
-    markSubmitted(room, actor.id);
-  }
-
-  resolveNightAction(): void {}
-}
-
 export class LittleGirlStrategy implements RoleStrategy {
   readonly metadata = buildRoleMetadata('LITTLE_GIRL');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
+    return room.phase === 'NIGHT_PHASE' && player.isAlive;
   }
 
   validateNightAction(): ValidationResult {
-    return { valid: false, error: 'Use night:littleGirlPeek to toggle peeking.' };
+    return { valid: false, error: 'Baxmaq üçün night:littleGirlPeek hadisəsindən istifadə edin.' };
   }
 
   recordNightInput(): void {}
@@ -545,17 +287,11 @@ export class WerewolfStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'WOLF_VOTE') {
-      return { valid: false, error: 'Invalid action type for Werewolf.' };
+      return { valid: false, error: 'Canavar üçün yanlış əməliyyat.' };
     }
-    if (payload.targetId) {
-      const target = room.players.find((p) => p.id === payload.targetId);
-      if (!target || !target.isAlive) {
-        return { valid: false, error: 'Vote target must be a living player.' };
-      }
-    }
-    return { valid: true };
+    return validateWolfVoteTarget(room, payload);
   }
 
   recordNightInput(
@@ -563,83 +299,10 @@ export class WerewolfStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): void {
-    room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
+    recordWolfVote(room, actor, payload);
   }
 
   resolveNightAction(): void {}
-}
-
-export class BigBadWolfStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('BIG_BAD_WOLF');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive;
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (payload.actionType === 'WOLF_VOTE') {
-      if (payload.targetId) {
-        const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-        if (!target) return { valid: false, error: 'Target must be a living player.' };
-      }
-      return { valid: true };
-    }
-
-    if (payload.actionType === 'BIG_BAD_WOLF_KILL') {
-      if (room.anyWolfHasDied) {
-        return {
-          valid: false,
-          error: 'Big Bad Wolf lost their extra attack because a Werewolf has already died.',
-        };
-      }
-      if (!payload.targetId) {
-        return { valid: false, error: 'Must select a living player for the extra attack.' };
-      }
-      const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-      if (!target || isWolfPackRole(target.role)) {
-        return {
-          valid: false,
-          error: 'Big Bad Wolf extra attack must target a living non-Werewolf.',
-        };
-      }
-      return { valid: true };
-    }
-
-    return { valid: false, error: 'Invalid action type for Big Bad Wolf.' };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    if (payload.actionType === 'WOLF_VOTE') {
-      room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
-    } else if (payload.actionType === 'BIG_BAD_WOLF_KILL') {
-      room.nightActions.bigBadWolfTargetId = payload.targetId ?? null;
-      markSubmitted(room, actor.id);
-    }
-  }
-
-  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    const { room } = context;
-    if (room.anyWolfHasDied) return;
-    const targetId = room.nightActions.bigBadWolfTargetId;
-    if (!targetId) return;
-    const target = room.players.find(
-      (p) => p.id === targetId && p.isAlive && !isWolfPackRole(p.role)
-    );
-    if (target) {
-      context.bigBadWolfVictimId = target.id;
-      actor.stats.abilitiesUsed += 1;
-      actor.stats.killsTriggered += 1;
-    }
-  }
 }
 
 export class BlackWolfStrategy implements RoleStrategy {
@@ -654,29 +317,23 @@ export class BlackWolfStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType === 'WOLF_VOTE') {
-      if (payload.targetId) {
-        const target = room.players.find((p) => p.id === payload.targetId);
-        if (!target || !target.isAlive) {
-          return { valid: false, error: 'Vote target must be a living player.' };
-        }
-      }
-      return { valid: true };
+      return validateWolfVoteTarget(room, payload);
     }
 
     if (payload.actionType === 'BLACK_WOLF_INFECT') {
       if (!room.blackWolfInfectionAvailable) {
-        return { valid: false, error: 'Infectious Father of Wolves has already used infection this game.' };
+        return { valid: false, error: 'Qara Canavar yoluxdurmanı bu oyunda artıq işlədib.' };
       }
       const currentTarget = computeConsensusWolfTarget(room);
       if (!currentTarget) {
-        return { valid: false, error: 'The pack must select a victim before infecting.' };
+        return { valid: false, error: 'Yoluxdurmaq üçün əvvəlcə sürü bir qurban seçməlidir.' };
       }
       return { valid: true };
     }
 
-    return { valid: false, error: 'Invalid action type for Infectious Father of Wolves.' };
+    return { valid: false, error: 'Qara Canavar üçün yanlış əməliyyat.' };
   }
 
   recordNightInput(
@@ -685,7 +342,7 @@ export class BlackWolfStrategy implements RoleStrategy {
     payload: NightActionPayload
   ): void {
     if (payload.actionType === 'WOLF_VOTE') {
-      room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
+      recordWolfVote(room, actor, payload);
     } else if (payload.actionType === 'BLACK_WOLF_INFECT') {
       room.nightActions.blackWolfInfectUsedThisNight =
         !room.nightActions.blackWolfInfectUsedThisNight;
@@ -717,8 +374,8 @@ export class BlackWolfStrategy implements RoleStrategy {
   }
 }
 
-export class WolfSeerStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('WOLF_SEER');
+export class MysticWolfStrategy implements RoleStrategy {
+  readonly metadata = buildRoleMetadata('MYSTIC_WOLF');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
     return room.phase === 'NIGHT_PHASE' && player.isAlive;
@@ -729,30 +386,32 @@ export class WolfSeerStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType === 'WOLF_VOTE') {
-      if (payload.targetId) {
-        const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-        if (!target) return { valid: false, error: 'Vote target must be a living player.' };
-      }
-      return { valid: true };
+      return validateWolfVoteTarget(room, payload);
     }
 
-    if (payload.actionType === 'WOLF_SEER_INSPECT') {
-      if (room.nightActions.wolfSeerInspectedThisNight) {
-        return { valid: false, error: 'Wolf Seer has already inspected a player tonight.' };
+    if (payload.actionType === 'MYSTIC_WOLF_INSPECT') {
+      if (room.nightActions.mysticWolfInspectedThisNight) {
+        return { valid: false, error: 'Mistik Canavar bu gecə artıq yoxlama aparıb.' };
       }
       if (!payload.targetId || payload.targetId === actor.id) {
-        return { valid: false, error: 'Wolf Seer must choose another living player.' };
+        return { valid: false, error: 'Yoxlamaq üçün başqa bir canlı oyunçu seçin.' };
       }
       const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
       if (!target) {
-        return { valid: false, error: 'Target must be a living player.' };
+        return { valid: false, error: 'Hədəf canlı oyunçu olmalıdır.' };
+      }
+      if (isWolfPackRole(target.role)) {
+        return {
+          valid: false,
+          error: 'Mistik Canavar yalnız qeyri-Canavar oyunçuları yoxlaya bilər.',
+        };
       }
       return { valid: true };
     }
 
-    return { valid: false, error: 'Invalid action type for Wolf Seer.' };
+    return { valid: false, error: 'Mistik Canavar üçün yanlış əməliyyat.' };
   }
 
   recordNightInput(
@@ -761,18 +420,20 @@ export class WolfSeerStrategy implements RoleStrategy {
     payload: NightActionPayload
   ): void {
     if (payload.actionType === 'WOLF_VOTE') {
-      room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
-    } else if (payload.actionType === 'WOLF_SEER_INSPECT') {
-      const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
+      recordWolfVote(room, actor, payload);
+      return;
+    }
+
+    if (payload.actionType === 'MYSTIC_WOLF_INSPECT') {
+      const target = room.players.find(
+        (p) => p.id === payload.targetId && p.isAlive && !isWolfPackRole(p.role)
+      );
       if (!target) return;
-      room.nightActions.wolfSeerTargetId = target.id;
-      room.nightActions.wolfSeerInspectedThisNight = true;
-      // Share with Wolf Seer and living pack wolves
-      for (const p of room.players) {
-        if (p.isAlive && isWolfPackRole(p.role)) {
-          p.knownRoles[target.id] = target.role;
-        }
-      }
+
+      room.nightActions.mysticWolfTargetId = target.id;
+      room.nightActions.mysticWolfInspectedThisNight = true;
+      // Checks whether target holds any special Normal or Tərəfsiz power (not plain Villager)
+      actor.mysticWolfInspections[target.id] = target.role !== 'VILLAGER';
       actor.stats.abilitiesUsed += 1;
       markSubmitted(room, actor.id);
     }
@@ -793,38 +454,32 @@ export class WhiteWolfStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType === 'WOLF_VOTE') {
-      if (payload.targetId) {
-        const target = room.players.find((p) => p.id === payload.targetId);
-        if (!target || !target.isAlive) {
-          return { valid: false, error: 'Vote target must be a living player.' };
-        }
-      }
-      return { valid: true };
+      return validateWolfVoteTarget(room, payload);
     }
 
     if (payload.actionType === 'WHITE_WOLF_KILL') {
       if (room.nightNumber % 2 !== 0) {
         return {
           valid: false,
-          error: 'White Wolf can only devour a fellow Werewolf on even nights (Night 2, 4, 6...).',
+          error: 'Ağ Canavar digər Canavarı yalnız cüt gecələrdə (Gecə 2, 4, 6...) öldürə bilər.',
         };
       }
       if (!payload.targetId || payload.targetId === actor.id) {
-        return { valid: false, error: 'White Wolf must choose another living Werewolf.' };
+        return { valid: false, error: 'Başqa bir canlı Canavar seçməlisiniz.' };
       }
       const target = room.players.find((p) => p.id === payload.targetId);
       if (!target || !target.isAlive || !isWolfPackRole(target.role)) {
         return {
           valid: false,
-          error: 'White Wolf can only target a living fellow Werewolf with their solo attack.',
+          error: 'Ağ Canavar yalnız digər sağ Qətil üzvünə xəyanət edə bilər.',
         };
       }
       return { valid: true };
     }
 
-    return { valid: false, error: 'Invalid action type for White Wolf.' };
+    return { valid: false, error: 'Ağ Canavar üçün yanlış əməliyyat.' };
   }
 
   recordNightInput(
@@ -833,7 +488,7 @@ export class WhiteWolfStrategy implements RoleStrategy {
     payload: NightActionPayload
   ): void {
     if (payload.actionType === 'WOLF_VOTE') {
-      room.nightActions.wolfVotes[actor.id] = payload.targetId ?? null;
+      recordWolfVote(room, actor, payload);
     } else if (payload.actionType === 'WHITE_WOLF_KILL') {
       room.nightActions.whiteWolfTargetId = payload.targetId ?? null;
       markSubmitted(room, actor.id);
@@ -857,148 +512,8 @@ export class WhiteWolfStrategy implements RoleStrategy {
   }
 }
 
-export class ThiefStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('THIEF');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return (
-      room.phase === 'NIGHT_PHASE' &&
-      player.isAlive &&
-      room.nightNumber === 1 &&
-      room.thiefExtraRoles !== null
-    );
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.nightNumber !== 1 || !room.thiefExtraRoles) {
-      return { valid: false, error: 'Thief can only swap cards on Night 1.' };
-    }
-    if (payload.actionType !== 'THIEF_SWAP') {
-      return { valid: false, error: 'Invalid action type for Thief.' };
-    }
-    const idx = payload.choiceIndex;
-    if (idx !== 0 && idx !== 1) {
-      return { valid: false, error: 'Must choose card 0 or card 1.' };
-    }
-
-    const [card0, card1] = room.thiefExtraRoles;
-    const chosenRole = idx === 0 ? card0 : card1;
-    const otherRole = idx === 0 ? card1 : card0;
-
-    // Classic Agrou rule: If one card is a Werewolf and the other is not, Thief MUST choose the Werewolf
-    if (isWolfPackRole(otherRole) && !isWolfPackRole(chosenRole)) {
-      return {
-        valid: false,
-        error: 'When a Werewolf card is present, the Thief is forced to pick the Werewolf!',
-      };
-    }
-
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    if (!room.thiefExtraRoles) return;
-    const idx = payload.choiceIndex;
-    if (idx !== 0 && idx !== 1) return;
-
-    room.nightActions.thiefChosenIndex = idx;
-    const newRole = room.thiefExtraRoles[idx];
-    actor.role = newRole;
-    actor.faction = getFactionForRole(newRole);
-    if (newRole === 'ELDER') {
-      actor.elderLivesRemaining = 2;
-    }
-    if (newRole === 'MAYOR') {
-      actor.isMayor = true;
-    }
-    room.thiefExtraRoles = null;
-    actor.stats.abilitiesUsed += 1;
-    markSubmitted(room, actor.id);
-  }
-
-  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    const { room } = context;
-    if (room.nightNumber === 1 && room.thiefExtraRoles && actor.role === 'THIEF') {
-      // If Thief didn't manually pick and one of the cards is a Werewolf, force-assign the Werewolf card
-      const [c0, c1] = room.thiefExtraRoles;
-      if (isWolfPackRole(c0) || isWolfPackRole(c1)) {
-        const forcedRole = isWolfPackRole(c0) ? c0 : c1;
-        actor.role = forcedRole;
-        actor.faction = getFactionForRole(forcedRole);
-      }
-      room.thiefExtraRoles = null;
-    }
-  }
-}
-
-export class WildChildStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('WILD_CHILD');
-
-  canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return (
-      room.phase === 'NIGHT_PHASE' &&
-      player.isAlive &&
-      room.nightNumber === 1 &&
-      player.roleModelId === null
-    );
-  }
-
-  validateNightAction(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (room.nightNumber !== 1) {
-      return { valid: false, error: 'Wild Child only selects a Role Model on Night 1.' };
-    }
-    if (payload.actionType !== 'WILD_CHILD_MODEL') {
-      return { valid: false, error: 'Invalid action type for Wild Child.' };
-    }
-    if (!payload.targetId || payload.targetId === actor.id) {
-      return { valid: false, error: 'Wild Child must choose another living player as Role Model.' };
-    }
-    const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-    if (!target) {
-      return { valid: false, error: 'Role Model must be a living player.' };
-    }
-    return { valid: true };
-  }
-
-  recordNightInput(
-    room: RoomState,
-    actor: PlayerState,
-    payload: NightActionPayload
-  ): void {
-    if (!payload.targetId) return;
-    room.nightActions.wildChildModelId = payload.targetId;
-    actor.roleModelId = payload.targetId;
-    actor.stats.abilitiesUsed += 1;
-    markSubmitted(room, actor.id);
-  }
-
-  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    if (
-      context.room.nightNumber === 1 &&
-      !actor.roleModelId &&
-      context.room.nightActions.wildChildModelId
-    ) {
-      actor.roleModelId = context.room.nightActions.wildChildModelId;
-    }
-  }
-}
-
-export class SerialKillerStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('SERIAL_KILLER');
+export class ArsonistStrategy implements RoleStrategy {
+  readonly metadata = buildRoleMetadata('ARSONIST');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
     return room.phase === 'NIGHT_PHASE' && player.isAlive;
@@ -1009,18 +524,33 @@ export class SerialKillerStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
-    if (!actor.isAlive) return { valid: false, error: 'Dead players cannot act.' };
-    if (payload.actionType !== 'SERIAL_KILLER_KILL') {
-      return { valid: false, error: 'Invalid action type for Serial Killer.' };
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
+
+    if (payload.actionType === 'ARSONIST_DOUSE') {
+      if (!payload.targetId || payload.targetId === actor.id) {
+        return { valid: false, error: 'Benzin tökmək üçün başqa bir canlı oyunçu seçin.' };
+      }
+      const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
+      if (!target) {
+        return { valid: false, error: 'Hədəf canlı oyunçu olmalıdır.' };
+      }
+      return { valid: true };
     }
-    if (!payload.targetId || payload.targetId === actor.id) {
-      return { valid: false, error: 'Serial Killer must select another living player.' };
+
+    if (payload.actionType === 'ARSONIST_IGNITE') {
+      const aliveDoused = room.arsonistDousedIds.filter((id) =>
+        room.players.some((p) => p.id === id && p.isAlive && p.id !== actor.id)
+      );
+      if (aliveDoused.length === 0) {
+        return {
+          valid: false,
+          error: 'Alovlandırmaq üçün əvvəlcə ən azı 1 sağ oyunçuya benzin tökülməlidir.',
+        };
+      }
+      return { valid: true };
     }
-    const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
-    if (!target) {
-      return { valid: false, error: 'Target must be a living player.' };
-    }
-    return { valid: true };
+
+    return { valid: false, error: 'Alovçu (Arsonist) üçün yanlış əməliyyat.' };
   }
 
   recordNightInput(
@@ -1028,49 +558,70 @@ export class SerialKillerStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): void {
-    room.nightActions.serialKillerTargetId = payload.targetId ?? null;
-    markSubmitted(room, actor.id);
+    if (payload.actionType === 'ARSONIST_DOUSE') {
+      room.nightActions.arsonistActionThisNight = 'DOUSE';
+      room.nightActions.arsonistTargetId = payload.targetId ?? null;
+      markSubmitted(room, actor.id);
+    } else if (payload.actionType === 'ARSONIST_IGNITE') {
+      room.nightActions.arsonistActionThisNight = 'IGNITE';
+      room.nightActions.arsonistTargetId = null;
+      markSubmitted(room, actor.id);
+    }
   }
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
-    const targetId = context.room.nightActions.serialKillerTargetId;
-    if (!targetId || targetId === actor.id) return;
-    const target = context.room.players.find((p) => p.id === targetId && p.isAlive);
-    if (target) {
-      context.serialKillerVictimId = target.id;
-      actor.stats.abilitiesUsed += 1;
-      actor.stats.killsTriggered += 1;
+    const { room } = context;
+    const action = room.nightActions.arsonistActionThisNight;
+    if (!action) return;
+
+    if (action === 'DOUSE' && room.nightActions.arsonistTargetId) {
+      const target = room.players.find(
+        (p) =>
+          p.id === room.nightActions.arsonistTargetId &&
+          p.isAlive &&
+          p.id !== actor.id
+      );
+      if (target) {
+        if (!room.arsonistDousedIds.includes(target.id)) {
+          room.arsonistDousedIds.push(target.id);
+        }
+        actor.stats.abilitiesUsed += 1;
+      }
+      return;
+    }
+
+    if (action === 'IGNITE') {
+      const aliveTargets = room.arsonistDousedIds.filter((id) =>
+        room.players.some((p) => p.id === id && p.isAlive && p.id !== actor.id)
+      );
+      for (const id of aliveTargets) {
+        context.arsonistIgnitedIds.add(id);
+      }
+      if (aliveTargets.length > 0) {
+        actor.stats.abilitiesUsed += 1;
+        actor.stats.killsTriggered += aliveTargets.length;
+      }
+      room.arsonistDousedIds = [];
     }
   }
 }
 
 export const ROLE_STRATEGIES: Record<RoleType, RoleStrategy> = {
-  // Village (12)
+  // Normal (Village)
   VILLAGER: new PassiveRoleStrategy('VILLAGER'),
   SEER: new SeerStrategy(),
-  GUARD: new GuardStrategy(),
   WITCH: new WitchStrategy(),
+  GUARD: new GuardStrategy(),
   HUNTER: new PassiveRoleStrategy('HUNTER'),
-  CUPID: new CupidStrategy(),
   LITTLE_GIRL: new LittleGirlStrategy(),
-  ELDER: new PassiveRoleStrategy('ELDER'),
-  CROW: new CrowStrategy(),
-  SISTERS: new PassiveRoleStrategy('SISTERS'),
-  MEDIUM: new MediumStrategy(),
-  FOX: new FoxStrategy(),
-  // Werewolves (5)
+  // Qətil (Werewolves)
   WEREWOLF: new WerewolfStrategy(),
-  BIG_BAD_WOLF: new BigBadWolfStrategy(),
   BLACK_WOLF: new BlackWolfStrategy(),
-  WOLF_SEER: new WolfSeerStrategy(),
-  WHITE_WOLF: new WhiteWolfStrategy(),
-  // Neutral / Special (5 + ANGEL)
-  THIEF: new ThiefStrategy(),
-  WILD_CHILD: new WildChildStrategy(),
-  JESTER: new PassiveRoleStrategy('JESTER'),
-  SERIAL_KILLER: new SerialKillerStrategy(),
-  MAYOR: new PassiveRoleStrategy('MAYOR'),
+  MYSTIC_WOLF: new MysticWolfStrategy(),
+  // Tərəfsiz (Neutrals)
   ANGEL: new PassiveRoleStrategy('ANGEL'),
+  WHITE_WOLF: new WhiteWolfStrategy(),
+  ARSONIST: new ArsonistStrategy(),
 };
 
 export function getRoleStrategy(role: RoleType): RoleStrategy {
