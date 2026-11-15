@@ -10,14 +10,22 @@ export type RoleType =
   | 'GUARD'
   | 'HUNTER'
   | 'LITTLE_GIRL'
-  // Qətil (Werewolf Team)
+  | 'ELDER'
+  | 'BEAR_TAMER'
+  | 'CROW'
+  | 'CUPID'
+  // Qatil (Werewolf Team)
   | 'WEREWOLF'
   | 'BLACK_WOLF'
   | 'MYSTIC_WOLF'
+  | 'VENGEFUL_WOLF'
+  | 'SHADOW_WOLF'
   // Tərəfsiz (Neutral Team)
   | 'ANGEL'
   | 'WHITE_WOLF'
-  | 'ARSONIST';
+  | 'ARSONIST'
+  | 'JESTER'
+  | 'WILD_CHILD';
 
 export type VisibleRoleType = RoleType | 'UNKNOWN';
 export type Faction = 'VILLAGE' | 'WEREWOLF' | 'NEUTRAL';
@@ -26,13 +34,15 @@ export type WinningFaction =
   | 'VILLAGE'
   | 'WEREWOLF'
   | 'ANGEL'
+  | 'JESTER'
   | 'WHITE_WOLF'
   | 'ARSONIST'
+  | 'LOVERS'
   | 'NONE';
 
 export interface FactionQuota {
   normal: number;
-  qetil: number;
+  qatil: number;
   terefsiz: number;
 }
 
@@ -99,6 +109,10 @@ export interface SanitizedSelfSecretState {
   exposureLevel: number;
   witchPotions: WitchPotionsState | null;
   blackWolfInfectionAvailable: boolean | null;
+  shadowWolfAbilityAvailable: boolean | null;
+  loverPartnerId: string | null;
+  roleModelId: string | null;
+  transformedFromWildChild: boolean;
   currentWolfTargetId: string | null;
   hasSubmittedNightAction: boolean;
   nightActionSummary: string | null;
@@ -111,6 +125,8 @@ export type DeathCause =
   | 'WHITE_WOLF'
   | 'ARSONIST_IGNITE'
   | 'HUNTER_SHOT'
+  | 'VENGEFUL_WOLF_SHOT'
+  | 'HEARTBREAK'
   | 'EXECUTION';
 
 export interface NightCasualty {
@@ -122,6 +138,7 @@ export interface NightCasualty {
 
 export interface HunterRevengeState {
   hunterId: string;
+  revengeRole: 'HUNTER' | 'VENGEFUL_WOLF';
   triggeredFromPhase: 'DAWN_SUMMARY' | 'EXECUTION_REVEAL';
   endsAt: number;
   resolved: boolean;
@@ -150,6 +167,10 @@ export interface SanitizedRoomState {
   lastNightCasualties: NightCasualty[];
   skipDiscussionVotes: string[];
   dayVotes: Record<string, string | 'SKIP'>;
+  dayVotesHidden: boolean;
+  villagePowersLost: boolean;
+  lastBearGrowled: boolean;
+  cursedPlayerId: string | null;
   lastExecutedPlayer: NightCasualty | null;
   hunterRevenge: HunterRevengeState | null;
   winner: WinningFaction | null;
@@ -157,7 +178,7 @@ export interface SanitizedRoomState {
   mvpAwards: MvpAward[];
 }
 
-export type ChatChannel = 'public' | 'wolves' | 'dead' | 'system';
+export type ChatChannel = 'public' | 'wolves' | 'lovers' | 'dead' | 'system';
 
 export interface ChatMessage {
   id: string;
@@ -178,6 +199,9 @@ export type NightActionType =
   | 'WITCH_HEAL'
   | 'WITCH_POISON'
   | 'GUARD_PROTECT'
+  | 'CROW_CURSE'
+  | 'CUPID_LINK'
+  | 'WILD_CHILD_MODEL'
   | 'BLACK_WOLF_INFECT'
   | 'MYSTIC_WOLF_INSPECT'
   | 'WHITE_WOLF_KILL'
@@ -187,6 +211,7 @@ export type NightActionType =
 export interface NightActionPayload {
   actionType: NightActionType;
   targetId?: string | null;
+  secondTargetId?: string | null;
 }
 
 export type ActiveNightSubMode =
@@ -203,7 +228,7 @@ export interface RoleInfo {
   displayName: string;
   icon: string;
   faction: Faction;
-  factionLabel: 'Normal' | 'Qətil' | 'Tərəfsiz';
+  factionLabel: 'Normal' | 'Qatil' | 'Tərəfsiz';
   isBaseFiller?: boolean;
   color: string;
   badgeBg: string;

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Eye,
   Flame,
+  Heart,
   Lock,
   MessageCircle,
   Mic,
@@ -25,6 +26,8 @@ const WOLF_ROLES: ReadonlySet<RoleType> = new Set([
   'WEREWOLF',
   'BLACK_WOLF',
   'MYSTIC_WOLF',
+  'VENGEFUL_WOLF',
+  'SHADOW_WOLF',
   'WHITE_WOLF',
 ]);
 
@@ -41,10 +44,18 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const isNight = room.phase === 'NIGHT_PHASE';
   const isWolfPack = Boolean(self && isAlive && WOLF_ROLES.has(self.role));
   const isPeekingGirl = Boolean(
-    isNight && isAlive && self?.role === 'LITTLE_GIRL' && self.isPeeking
+    isNight &&
+      isAlive &&
+      self?.role === 'LITTLE_GIRL' &&
+      self.isPeeking &&
+      !room.villagePowersLost
   );
+  const loverPartner = self?.loverPartnerId
+    ? room.players.find((p) => p.id === self.loverPartnerId) ?? null
+    : null;
 
   const canSeeWolvesTab = isWolfPack || isPeekingGirl;
+  const canSeeLoversTab = Boolean(isAlive && loverPartner && loverPartner.isAlive);
   const canSeeDeadTab = Boolean(selfPlayer && !selfPlayer.isAlive);
 
   const [activeTab, setActiveTab] = useState<ActiveChatTab>('public');
@@ -58,10 +69,12 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   useEffect(() => {
     if (activeTab === 'wolves' && !canSeeWolvesTab) {
       setActiveTab(!isAlive ? 'dead' : 'public');
+    } else if (activeTab === 'lovers' && !canSeeLoversTab) {
+      setActiveTab(!isAlive ? 'dead' : 'public');
     } else if (activeTab === 'dead' && !canSeeDeadTab) {
       setActiveTab('public');
     }
-  }, [activeTab, canSeeWolvesTab, canSeeDeadTab, isAlive]);
+  }, [activeTab, canSeeWolvesTab, canSeeLoversTab, canSeeDeadTab, isAlive]);
 
   useEffect(() => {
     if (isNight && isWolfPack && room.phase === 'NIGHT_PHASE') {
@@ -82,6 +95,9 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       if (activeTab === 'wolves') {
         return msg.channel === 'wolves';
       }
+      if (activeTab === 'lovers') {
+        return msg.channel === 'lovers';
+      }
       return msg.channel === 'dead';
     });
   }, [messages, activeTab]);
@@ -91,7 +107,13 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   }, [visibleMessages.length, activeTab]);
 
   const canWriteActiveTab = useMemo(() => {
-    if (room.phase === 'GAME_OVER') return activeTab === 'public' || (activeTab === 'dead' && !isAlive);
+    if (room.phase === 'GAME_OVER') {
+      return (
+        activeTab === 'public' ||
+        (activeTab === 'dead' && !isAlive) ||
+        (activeTab === 'lovers' && canSeeLoversTab)
+      );
+    }
     if (activeTab === 'public') {
       if (room.phase === 'LOBBY') return true;
       return isAlive && !isNight;
@@ -100,18 +122,32 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       // Wolves write freely (especially at night); peeking Little Girl is strictly read-only
       return isWolfPack && !isPeekingGirl;
     }
+    if (activeTab === 'lovers') {
+      return canSeeLoversTab;
+    }
     if (activeTab === 'dead') {
       return !isAlive;
     }
     return false;
-  }, [activeTab, room.phase, isAlive, isNight, isWolfPack, isPeekingGirl]);
+  }, [
+    activeTab,
+    room.phase,
+    isAlive,
+    isNight,
+    isWolfPack,
+    isPeekingGirl,
+    canSeeLoversTab,
+  ]);
 
   const inputPlaceholder = useMemo(() => {
     if (activeTab === 'wolves') {
       if (isPeekingGirl) {
         return '👀 Gizlicə dinləyirsiniz (yalnız oxumaq mümkündür)...';
       }
-      return '🐺 Qətil yoldaşlarınıza gizli mesaj yazın...';
+      return '🐺 Qatil yoldaşlarınıza gizli mesaj yazın...';
+    }
+    if (activeTab === 'lovers') {
+      return `💘 Aşiqiniz (${loverPartner?.nickname ?? 'Partnyor'}) ilə gizli mesajlaşın...`;
     }
     if (activeTab === 'dead') {
       return '👻 Ruhlar aləmində mesaj yazın...';
@@ -123,7 +159,14 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
       return '🌙 Gecə Ümumi söhbət bağlıdır...';
     }
     return '💬 Tonqal ətrafına mesaj yazın...';
-  }, [activeTab, isPeekingGirl, isAlive, room.phase, isNight]);
+  }, [
+    activeTab,
+    isPeekingGirl,
+    loverPartner?.nickname,
+    isAlive,
+    room.phase,
+    isNight,
+  ]);
 
   const handleDraftChange = (value: string) => {
     setDraft(value);
@@ -153,9 +196,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
   const containerBorder =
     activeTab === 'wolves'
       ? 'border-red-500/45 bg-red-950/20'
-      : activeTab === 'dead'
-        ? 'border-cyan-500/35 bg-slate-900/85'
-        : 'border-slate-700/60 bg-slate-900/85';
+      : activeTab === 'lovers'
+        ? 'border-pink-500/45 bg-pink-950/20'
+        : activeTab === 'dead'
+          ? 'border-cyan-500/35 bg-slate-900/85'
+          : 'border-slate-700/60 bg-slate-900/85';
 
   return (
     <div
@@ -192,7 +237,22 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
               ) : (
                 <Flame className="w-3.5 h-3.5" />
               )}
-              {isPeekingGirl ? 'Qətillər (Gizli Baxış)' : 'Qətil Çatı'}
+              {isPeekingGirl ? 'Qatillər (Gizli Baxış)' : 'Qatil Çatı'}
+            </button>
+          )}
+
+          {canSeeLoversTab && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('lovers')}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'lovers'
+                  ? 'bg-pink-600 text-white shadow'
+                  : 'bg-pink-950/60 text-pink-300 border border-pink-500/30 hover:bg-pink-900/60'
+              }`}
+            >
+              <Heart className="w-3.5 h-3.5" />
+              Aşiqlər
             </button>
           )}
 
@@ -239,8 +299,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <Lock className="w-3 h-3 shrink-0" />
           <span>
             {isPeekingGirl
-              ? 'Qətillərin adları anonimləşdirilib (Wolf 1, Wolf 2...). Yalnız dinləyə bilərsiniz.'
-              : 'Yalnız Qətil komandası və Ağ Canavar bu çatı görə bilər.'}
+              ? 'Qatillərin adları anonimləşdirilib (Wolf 1, Wolf 2...). Yalnız dinləyə bilərsiniz.'
+              : 'Yalnız Qatil komandası və Ağ Canavar bu çatı görə bilər.'}
+          </span>
+        </div>
+      )}
+
+      {activeTab === 'lovers' && (
+        <div className="px-3 py-1.5 bg-pink-950/70 border-b border-pink-500/25 text-[11px] text-pink-200 flex items-center gap-1.5">
+          <Heart className="w-3 h-3 shrink-0" />
+          <span>
+            Yalnız siz və Aşiqiniz ({loverPartner?.nickname}) bu gizli kanalı görə bilərsiniz.
           </span>
         </div>
       )}
@@ -251,9 +320,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
           <div className="h-full flex items-center justify-center text-xs text-slate-500 text-center px-4">
             {activeTab === 'wolves'
               ? 'Qaranlıq sürünün səssizliyi... Gecə planını buradan yazın.'
-              : activeTab === 'dead'
-                ? 'Ruhlar aləmi hələ səssizdir.'
-                : 'Tonqal ətrafında söhbətə başlayın.'}
+              : activeTab === 'lovers'
+                ? 'Aşiqlərin gizli sirdaş kanalı... Buradan planlaşdırın.'
+                : activeTab === 'dead'
+                  ? 'Ruhlar aləmi hələ səssizdir.'
+                  : 'Tonqal ətrafında söhbətə başlayın.'}
           </div>
         ) : (
           visibleMessages.map((msg) => {
@@ -275,9 +346,11 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({
                 className={`rounded-xl px-3 py-2 text-xs border ${
                   msg.channel === 'wolves'
                     ? 'bg-red-950/45 border-red-500/25 text-red-100'
-                    : msg.channel === 'dead'
-                      ? 'bg-cyan-950/35 border-cyan-500/25 text-cyan-100'
-                      : 'bg-slate-800/75 border-slate-700/50 text-slate-100'
+                    : msg.channel === 'lovers'
+                      ? 'bg-pink-950/45 border-pink-500/25 text-pink-100'
+                      : msg.channel === 'dead'
+                        ? 'bg-cyan-950/35 border-cyan-500/25 text-cyan-100'
+                        : 'bg-slate-800/75 border-slate-700/50 text-slate-100'
                 }`}
               >
                 <div className="flex items-center justify-between gap-2 mb-0.5">

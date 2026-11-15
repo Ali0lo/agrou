@@ -32,7 +32,7 @@ export interface RoleMetadata {
   displayName: string;
   icon: string;
   faction: Faction;
-  factionLabel: 'Normal' | 'Qətil' | 'Tərəfsiz';
+  factionLabel: 'Normal' | 'Qatil' | 'Tərəfsiz';
   shortDescription: string;
   winCondition: string;
   hasNightAction: boolean;
@@ -58,22 +58,30 @@ export interface RoleStrategy {
 }
 
 /**
- * Wolf-pack participation (includes White Wolf so they see pack chat and vote with Qətil).
+ * Wolf-pack participation (includes White Wolf so they see pack chat and vote with Qatil).
  */
 export function isWolfPackRole(role: RoleType): boolean {
   return (
     role === 'WEREWOLF' ||
     role === 'BLACK_WOLF' ||
     role === 'MYSTIC_WOLF' ||
+    role === 'VENGEFUL_WOLF' ||
+    role === 'SHADOW_WOLF' ||
     role === 'WHITE_WOLF'
   );
 }
 
 /**
- * Qətil faction win-condition roles (excludes solo White Wolf).
+ * Qatil faction win-condition roles (excludes solo White Wolf).
  */
-export function isQetilFactionRole(role: RoleType): boolean {
-  return role === 'WEREWOLF' || role === 'BLACK_WOLF' || role === 'MYSTIC_WOLF';
+export function isQatilFactionRole(role: RoleType): boolean {
+  return (
+    role === 'WEREWOLF' ||
+    role === 'BLACK_WOLF' ||
+    role === 'MYSTIC_WOLF' ||
+    role === 'VENGEFUL_WOLF' ||
+    role === 'SHADOW_WOLF'
+  );
 }
 
 export function isLethalNeutralRole(role: RoleType): boolean {
@@ -81,6 +89,9 @@ export function isLethalNeutralRole(role: RoleType): boolean {
 }
 
 export function getFactionForRole(role: RoleType): Faction {
+  if (role === 'WILD_CHILD') {
+    return 'VILLAGE';
+  }
   return ROLE_DEFINITIONS[role]?.faction ?? 'VILLAGE';
 }
 

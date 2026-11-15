@@ -3,7 +3,8 @@ import { isWolfPackRole } from './roles/RoleStrategy.js';
 
 export const CHANNEL_BADGES: Record<ChatChannel, string> = {
   public: '💬 Ümumi',
-  wolves: '🐺 Qətil Çatı',
+  wolves: '🐺 Qatil Çatı',
+  lovers: '💘 Aşiqlər',
   dead: '👻 Ruhlar',
   system: '🔥 Sistem',
 };
@@ -16,6 +17,9 @@ export function normalizeChatChannel(raw?: string): ChatChannel {
     case 'wolves':
     case 'wolf':
       return 'wolves';
+    case 'lovers':
+    case 'lover':
+      return 'lovers';
     case 'dead':
     case 'ghost':
     case 'ghosts':
@@ -42,7 +46,7 @@ export function canReadChannel(
       return true;
 
     case 'wolves': {
-      // 1. Alive Qətil / wolf-pack roles (including infected players & White Wolf)
+      // 1. Alive Qatil / wolf-pack roles (including infected players & White Wolf)
       if (player.isAlive && isWolfPackRole(player.role)) {
         return true;
       }
@@ -57,6 +61,13 @@ export function canReadChannel(
       }
       return false;
     }
+
+    case 'lovers':
+      return Boolean(
+        player.isAlive &&
+          player.loverPartnerId &&
+          room.players.some((p) => p.id === player.loverPartnerId && p.isAlive)
+      );
 
     case 'dead':
       // Eliminated players can read & talk anytime
@@ -93,13 +104,28 @@ export function canWriteToChannel(
       if (!player.isAlive || !isWolfPackRole(player.role)) {
         return {
           allowed: false,
-          error: 'Yalnız sağ qalan Qətillər bu kanala yaza bilər.',
+          error: 'Yalnız sağ qalan Qatillər bu kanala yaza bilər.',
         };
       }
       if (room.phase !== 'NIGHT_PHASE') {
         return {
           allowed: false,
-          error: 'Qətil çatı yalnız Gecə fazasında aktivdir.',
+          error: 'Qatil çatı yalnız Gecə fazasında aktivdir.',
+        };
+      }
+      return { allowed: true };
+    }
+
+    case 'lovers': {
+      const hasAlivePartner = Boolean(
+        player.isAlive &&
+          player.loverPartnerId &&
+          room.players.some((p) => p.id === player.loverPartnerId && p.isAlive)
+      );
+      if (!hasAlivePartner) {
+        return {
+          allowed: false,
+          error: 'Yalnız sağ qalan Aşiqlər bu gizli kanala yaza bilər.',
         };
       }
       return { allowed: true };

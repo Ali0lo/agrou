@@ -30,7 +30,7 @@ export const RoleRevealModal: React.FC<RoleRevealModalProps> = ({
     meta.faction === 'VILLAGE'
       ? 'Normal (Kənd Komandası)'
       : meta.faction === 'WEREWOLF'
-        ? 'Qətil (Canavar Komandası)'
+        ? 'Qatil (Canavar Komandası)'
         : 'Tərəfsiz (Solo Komanda)';
 
   return (

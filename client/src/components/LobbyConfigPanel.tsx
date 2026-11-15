@@ -1,22 +1,28 @@
 import React, { useState } from 'react';
 import {
   Check,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Flame,
   Lock,
+  Mic,
   Play,
   Plus,
   ShieldCheck,
   Sliders,
   Sparkles,
+  Table,
   Unlock,
   Users,
 } from 'lucide-react';
 import {
+  ALL_PLAYABLE_ROLES,
   computeQuotaPreview,
+  FACTION_QUOTA_TABLE,
   NEUTRAL_ROLES,
   NORMAL_SPECIAL_ROLES,
-  QETIL_SPECIAL_ROLES,
+  QATIL_SPECIAL_ROLES,
   ROLE_CATALOG,
 } from '../constants/roles';
 import {
@@ -49,6 +55,7 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
 }) => {
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [showQuotaTable, setShowQuotaTable] = useState(false);
 
   const isHost =
     isHostProp ??
@@ -59,6 +66,15 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
     playerCount,
     room.config.enabledRoles
   );
+
+  const allSpecialsCount =
+    NORMAL_SPECIAL_ROLES.length +
+    QATIL_SPECIAL_ROLES.length +
+    NEUTRAL_ROLES.length;
+  const activeSpecialsCount =
+    quotaPreview.enabledNormalSpecialCount +
+    quotaPreview.enabledQatilSpecialCount +
+    NEUTRAL_ROLES.filter((r) => Boolean(room.config.enabledRoles[r])).length;
 
   const inviteUrl = `${window.location.origin}/?room=${room.roomCode}`;
 
@@ -85,42 +101,70 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
 
   const applyAllEnabledPreset = () => {
     if (!isHost) return;
-    onUpdateConfig({
-      enabledRoles: {
-        VILLAGER: true,
-        SEER: true,
-        WITCH: true,
-        GUARD: true,
-        HUNTER: true,
-        LITTLE_GIRL: true,
-        WEREWOLF: true,
-        BLACK_WOLF: true,
-        MYSTIC_WOLF: true,
-        ANGEL: true,
-        WHITE_WOLF: true,
-        ARSONIST: true,
-      },
-    });
+    const enabledRoles = Object.fromEntries(
+      ALL_PLAYABLE_ROLES.map((r) => [r, true])
+    ) as Record<RoleType, boolean>;
+    onUpdateConfig({ enabledRoles });
   };
 
   const applyPureClassicPreset = () => {
     if (!isHost) return;
-    onUpdateConfig({
-      enabledRoles: {
-        VILLAGER: true,
-        SEER: true,
-        WITCH: true,
-        GUARD: false,
-        HUNTER: true,
-        LITTLE_GIRL: false,
-        WEREWOLF: true,
-        BLACK_WOLF: false,
-        MYSTIC_WOLF: false,
-        ANGEL: false,
-        WHITE_WOLF: false,
-        ARSONIST: false,
-      },
-    });
+    const classicSet = new Set<RoleType>([
+      'VILLAGER',
+      'SEER',
+      'WITCH',
+      'HUNTER',
+      'WEREWOLF',
+    ]);
+    const enabledRoles = Object.fromEntries(
+      ALL_PLAYABLE_ROLES.map((r) => [r, classicSet.has(r)])
+    ) as Record<RoleType, boolean>;
+    onUpdateConfig({ enabledRoles });
+  };
+
+  const applyNoNeutralsPreset = () => {
+    if (!isHost) return;
+    const neutralSet = new Set<RoleType>(NEUTRAL_ROLES);
+    const updated = { ...room.config.enabledRoles };
+    for (const r of neutralSet) {
+      updated[r] = false;
+    }
+    updated.VILLAGER = true;
+    updated.WEREWOLF = true;
+    onUpdateConfig({ enabledRoles: updated });
+  };
+
+  const renderBaseFillerCard = (roleKey: RoleType, accentClass: string) => {
+    const info = ROLE_CATALOG[roleKey];
+    return (
+      <div
+        key={roleKey}
+        className={`w-full text-left rounded-xl p-3 border ${accentClass} shadow-sm flex items-start justify-between gap-2.5`}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-base leading-none">{info.icon}</span>
+            <span className="text-xs font-bold text-slate-100">
+              {info.displayName}
+            </span>
+            <span className="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 border border-amber-400/40 inline-flex items-center gap-1">
+              <Lock className="w-2.5 h-2.5" />
+              AUTO-FILL
+            </span>
+          </div>
+          <p className="text-[11px] text-slate-300/85 leading-snug mt-1.5">
+            {info.shortDescription}
+          </p>
+        </div>
+
+        <div
+          className="shrink-0 mt-0.5 w-10 h-5 rounded-full bg-slate-800 border border-slate-600/80 flex items-center justify-center text-slate-300"
+          title="Avtomatik Doldurucu (Bağlana bilməz)"
+        >
+          <Lock className="w-3 h-3" />
+        </div>
+      </div>
+    );
   };
 
   const renderToggleCard = (roleKey: RoleType, accentClass: string) => {
@@ -133,23 +177,32 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
         type="button"
         disabled={!isHost}
         onClick={() => toggleRole(roleKey)}
-        className={`w-full text-left rounded-xl p-2.5 border transition-all flex items-start justify-between gap-2.5 ${
+        className={`w-full text-left rounded-xl p-3 border transition-all flex items-start justify-between gap-2.5 ${
           isEnabled
             ? `${accentClass} shadow-sm`
-            : 'bg-slate-900/50 border-slate-800/80 opacity-60 hover:opacity-85'
+            : 'bg-slate-950/60 border-slate-800/80 opacity-65 hover:opacity-90'
         } ${!isHost ? 'cursor-default' : 'cursor-pointer'}`}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-base leading-none">{info.icon}</span>
-            <span className="text-xs font-semibold text-slate-100 truncate">
+            <span className="text-xs font-bold text-slate-100">
               {info.displayName}
             </span>
-            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-950/60 text-slate-300 border border-slate-700/60">
+            <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-slate-950/70 text-slate-300 border border-slate-700/60">
               Maks. 1
             </span>
+            <span
+              className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded ${
+                isEnabled
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700'
+              }`}
+            >
+              {isEnabled ? 'Açıq (ON)' : 'Bağlı (OFF)'}
+            </span>
           </div>
-          <p className="text-[11px] text-slate-400 leading-snug mt-1 line-clamp-2">
+          <p className="text-[11px] text-slate-300/85 leading-snug mt-1.5">
             {info.shortDescription}
           </p>
         </div>
@@ -169,21 +222,21 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
   };
 
   return (
-    <div className="rounded-2xl bg-slate-900/85 border border-slate-700/60 backdrop-blur-md p-4 flex flex-col gap-4 shadow-2xl">
+    <div className="rounded-2xl bg-slate-900/90 border border-slate-700/60 backdrop-blur-md p-4 sm:p-5 flex flex-col gap-4 shadow-2xl">
       {/* Room Code & Invite Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
         <div>
-          <div className="text-[11px] uppercase tracking-wider text-amber-400 font-semibold">
-            Tonqal Lobbisi (4–16 Oyunçu)
+          <div className="text-[11px] uppercase tracking-wider text-amber-400 font-bold">
+            Oyun Ayarları və Rollar — Lobbi (4–16 Oyunçu)
           </div>
-          <div className="flex items-center gap-2 mt-0.5">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="font-mono text-2xl font-bold tracking-widest text-white">
               {room.roomCode}
             </span>
             <button
               type="button"
               onClick={copyRoomCode}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition"
+              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
               title="Kodu kopyala"
             >
               {copiedCode ? (
@@ -195,7 +248,7 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
             <button
               type="button"
               onClick={copyInviteLink}
-              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 transition flex items-center gap-1"
+              className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 transition flex items-center gap-1 cursor-pointer"
             >
               {copiedLink ? (
                 <>
@@ -222,7 +275,7 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
             <button
               type="button"
               onClick={onAddBot}
-              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600/70 text-xs font-semibold text-amber-300 flex items-center gap-1 transition"
+              className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600/70 text-xs font-semibold text-amber-300 flex items-center gap-1 transition cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               Bot Əlavə Et
@@ -232,36 +285,58 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
       </div>
 
       {/* Automatic Faction Quota Preview Banner */}
-      <div className="rounded-xl bg-gradient-to-br from-slate-950/90 to-slate-900 border border-amber-500/30 p-3 space-y-2">
+      <div className="rounded-xl bg-gradient-to-br from-slate-950/90 to-slate-900 border border-amber-500/30 p-3 space-y-2.5">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 text-xs font-semibold text-amber-300">
             <Sparkles className="w-4 h-4" />
             <span>
               Avtomatik Komanda Kvota Paylanması (
               {playerCount < 4
-                ? `Min 4 oyunçu üçün önizləmə`
+                ? 'Min 4 oyunçu üçün önizləmə'
                 : `${playerCount} oyunçu`}
               )
             </span>
           </div>
-          {isHost && (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={applyAllEnabledPreset}
-                className="px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-[10px] font-semibold text-amber-200 transition"
-              >
-                Hamısını Aç
-              </button>
-              <button
-                type="button"
-                onClick={applyPureClassicPreset}
-                className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-semibold text-slate-300 transition"
-              >
-                Klassik Sadə
-              </button>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {isHost && (
+              <>
+                <button
+                  type="button"
+                  onClick={applyAllEnabledPreset}
+                  className="px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-[10px] font-semibold text-amber-200 transition cursor-pointer"
+                >
+                  Hamısını Aç
+                </button>
+                <button
+                  type="button"
+                  onClick={applyNoNeutralsPreset}
+                  className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-semibold text-slate-300 transition cursor-pointer"
+                >
+                  Tərəfsizləri Bağla
+                </button>
+                <button
+                  type="button"
+                  onClick={applyPureClassicPreset}
+                  className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-700 text-[10px] font-semibold text-slate-300 transition cursor-pointer"
+                >
+                  Klassik Sadə
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowQuotaTable((v) => !v)}
+              className="px-2 py-0.5 rounded-md bg-slate-800 hover:bg-slate-700 border border-slate-600 text-[10px] font-semibold text-slate-200 flex items-center gap-1 transition cursor-pointer"
+            >
+              <Table className="w-3 h-3 text-amber-400" />
+              <span>4–16 Cədvəl</span>
+              {showQuotaTable ? (
+                <ChevronUp className="w-3 h-3" />
+              ) : (
+                <ChevronDown className="w-3 h-3" />
+              )}
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
@@ -279,13 +354,13 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
 
           <div className="rounded-lg bg-red-950/40 border border-red-500/30 px-2.5 py-2 text-center">
             <div className="text-[10px] uppercase tracking-wider text-red-300/80 font-semibold">
-              Qətil (Canavar)
+              Qatil (Canavar)
             </div>
             <div className="text-lg font-extrabold text-red-300">
-              {quotaPreview.baseQuota.qetil}
+              {quotaPreview.baseQuota.qatil}
             </div>
             <div className="text-[10px] text-red-200/70">
-              {quotaPreview.enabledQetilSpecialCount} xüsusi aktiv
+              {quotaPreview.enabledQatilSpecialCount} xüsusi aktiv
             </div>
           </div>
 
@@ -309,69 +384,146 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
             <strong>Normal</strong> komandasına əlavə edildi.
           </p>
         )}
+
+        {showQuotaTable && (
+          <div className="rounded-lg bg-slate-950/90 border border-slate-800 p-2.5 text-[11px]">
+            <div className="grid grid-cols-4 font-bold text-slate-400 border-b border-slate-800 pb-1 mb-1">
+              <span>Oyunçu Sayı</span>
+              <span className="text-emerald-400">Normal</span>
+              <span className="text-red-400">Qatil</span>
+              <span className="text-violet-400">Tərəfsiz</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              {Object.entries(FACTION_QUOTA_TABLE).map(([cnt, q]) => {
+                const isCurrent = Number(cnt) === quotaPreview.playerCount;
+                return (
+                  <div
+                    key={cnt}
+                    className={`grid grid-cols-4 py-0.5 px-1 rounded ${
+                      isCurrent
+                        ? 'bg-amber-500/15 text-amber-200 font-bold'
+                        : 'text-slate-300'
+                    }`}
+                  >
+                    <span>{cnt} nəfər</span>
+                    <span className="text-emerald-300">{q.normal}</span>
+                    <span className="text-red-300">{q.qatil}</span>
+                    <span className="text-violet-300">{q.terefsiz}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Host Core Toggle: Reveal Dead Roles */}
-      <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 flex items-center justify-between gap-3">
-        <div className="flex items-start gap-2.5">
-          {room.config.revealDeadRoles ? (
-            <Unlock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          ) : (
-            <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-          )}
-          <div>
-            <div className="text-xs font-semibold text-slate-100">
-              Ölən oyunçuların rolunu göstər
+      {/* Host General Settings */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        {/* Reveal Dead Players' Roles */}
+        <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 flex items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            {room.config.revealDeadRoles ? (
+              <Unlock className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            ) : (
+              <Lock className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            )}
+            <div>
+              <div className="text-xs font-semibold text-slate-100">
+                Ölən oyunçuların rolunu göstər
+              </div>
+              <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
+                Ölən oyunçunun rolu səhər və edam zamanı hamıya açıqlanır.
+              </p>
             </div>
-            <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
-              Aktiv olduqda gecə və ya səsvermə ilə ölən oyunçunun rolu hamıya
-              açıqlanır.
-            </p>
           </div>
+
+          <button
+            type="button"
+            disabled={!isHost}
+            onClick={() =>
+              onUpdateConfig({
+                revealDeadRoles: !room.config.revealDeadRoles,
+              })
+            }
+            className={`shrink-0 w-11 h-6 rounded-full transition-colors p-0.5 flex items-center ${
+              room.config.revealDeadRoles
+                ? 'bg-emerald-500 justify-end'
+                : 'bg-slate-700 justify-start'
+            } ${!isHost ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+            role="switch"
+            aria-checked={room.config.revealDeadRoles}
+          >
+            <span className="w-5 h-5 rounded-full bg-white shadow" />
+          </button>
         </div>
 
-        <button
-          type="button"
-          disabled={!isHost}
-          onClick={() =>
-            onUpdateConfig({
-              revealDeadRoles: !room.config.revealDeadRoles,
-            })
-          }
-          className={`shrink-0 w-11 h-6 rounded-full transition-colors p-0.5 flex items-center ${
-            room.config.revealDeadRoles
-              ? 'bg-emerald-500 justify-end'
-              : 'bg-slate-700 justify-start'
-          } ${!isHost ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
-          role="switch"
-          aria-checked={room.config.revealDeadRoles}
-        >
-          <span className="w-5 h-5 rounded-full bg-white shadow" />
-        </button>
+        {/* Voice Indicator Setting */}
+        <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 flex items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <Mic className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-xs font-semibold text-slate-100">
+                Səs / Mikrafon İndikatoru
+              </div>
+              <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
+                Oyunçular çat panelindən danışma indikatorunu aktiv edə bilir.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={!isHost}
+            onClick={() =>
+              onUpdateConfig({
+                allowWebRTC: !room.config.allowWebRTC,
+              })
+            }
+            className={`shrink-0 w-11 h-6 rounded-full transition-colors p-0.5 flex items-center ${
+              room.config.allowWebRTC
+                ? 'bg-sky-500 justify-end'
+                : 'bg-slate-700 justify-start'
+            } ${!isHost ? 'opacity-60 cursor-default' : 'cursor-pointer'}`}
+            role="switch"
+            aria-checked={room.config.allowWebRTC}
+          >
+            <span className="w-5 h-5 rounded-full bg-white shadow" />
+          </button>
+        </div>
       </div>
 
-      {/* Role Toggle Builder (Boolean ON/OFF, Max 1 Special Role Each) */}
-      <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1 custom-scrollbar">
-        {/* 1. Normal Team */}
-        <div className="space-y-1.5">
+      {/* ALL 20 ROLES — Completely Expanded (2 AUTO-FILL + 18 Special Roles) */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-2 flex-wrap border-b border-slate-800/80 pb-2">
+          <div>
+            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-100">
+              🎭 Bütün Rollar (20 Rol — 2 AUTO-FILL + 18 Xüsusi)
+            </h3>
+            <p className="text-[11px] text-slate-400">
+              Baza doldurucu rollar avtomatik aktivdir; bütün xüsusi rolları Aç/Bağla
+              edib oyunu başladın (hər xüsusi roldan maks. 1 ədəd).
+            </p>
+          </div>
+          <span className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/35 text-[11px] font-bold text-amber-300">
+            {activeSpecialsCount} / {allSpecialsCount} xüsusi aktiv • 2 AUTO-FILL
+          </span>
+        </div>
+
+        {/* 1. Normal Team (10 Roles: VILLAGER AUTO-FILL + 9 Specials) */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-emerald-400 px-1">
-            <span>🌾 Normal Komandası ({quotaPreview.adjustedNormal} yer)</span>
+            <span>
+              🌾 Normal Komandası — 10 Rol ({quotaPreview.adjustedNormal} yer)
+            </span>
             <span className="text-slate-400 font-normal normal-case">
-              Qalan yerlər: Kəndli
+              Boş qalan yerlər: Kəndli (AUTO-FILL)
             </span>
           </div>
-          <div className="rounded-xl bg-emerald-950/20 border border-emerald-500/20 px-2.5 py-2 flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span>{ROLE_CATALOG.VILLAGER.icon}</span>
-              <span className="font-semibold text-emerald-200">
-                {ROLE_CATALOG.VILLAGER.displayName}
-              </span>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-semibold">
-              Avtomatik Doldurucu
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {renderBaseFillerCard(
+              'VILLAGER',
+              'bg-emerald-950/30 border-emerald-500/35'
+            )}
             {NORMAL_SPECIAL_ROLES.map((r) =>
               renderToggleCard(
                 r,
@@ -381,27 +533,22 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
           </div>
         </div>
 
-        {/* 2. Qətil Team */}
-        <div className="space-y-1.5">
+        {/* 2. Qatil Team (5 Roles: WEREWOLF AUTO-FILL + 4 Specials) */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-red-400 px-1">
-            <span>🐺 Qətil Komandası ({quotaPreview.baseQuota.qetil} yer)</span>
+            <span>
+              🐺 Qatil Komandası — 5 Rol ({quotaPreview.baseQuota.qatil} yer)
+            </span>
             <span className="text-slate-400 font-normal normal-case">
-              Qalan yerlər: Canavar
+              Boş qalan yerlər: Canavar (AUTO-FILL)
             </span>
           </div>
-          <div className="rounded-xl bg-red-950/20 border border-red-500/20 px-2.5 py-2 flex items-center justify-between gap-2 text-xs">
-            <div className="flex items-center gap-2">
-              <span>{ROLE_CATALOG.WEREWOLF.icon}</span>
-              <span className="font-semibold text-red-200">
-                {ROLE_CATALOG.WEREWOLF.displayName}
-              </span>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30 font-semibold">
-              Avtomatik Doldurucu
-            </span>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-            {QETIL_SPECIAL_ROLES.map((r) =>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {renderBaseFillerCard(
+              'WEREWOLF',
+              'bg-red-950/30 border-red-500/35'
+            )}
+            {QATIL_SPECIAL_ROLES.map((r) =>
               renderToggleCard(
                 r,
                 'bg-red-950/35 border-red-500/45 hover:border-red-400/70'
@@ -410,17 +557,18 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
           </div>
         </div>
 
-        {/* 3. Tərəfsiz Team */}
-        <div className="space-y-1.5">
+        {/* 3. Tərəfsiz Team (5 Roles) */}
+        <div className="space-y-2">
           <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-violet-400 px-1">
             <span>
-              🎭 Tərəfsizlər (Kvota: {quotaPreview.baseQuota.terefsiz} yer)
+              🎭 Tərəfsiz Komanda — 5 Rol (Kvota:{' '}
+              {quotaPreview.baseQuota.terefsiz} yer)
             </span>
             <span className="text-slate-400 font-normal normal-case">
-              6+ oyunçudan etibarən
+              6+ oyunçudan etibarən aktivləşir
             </span>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {NEUTRAL_ROLES.map((r) =>
               renderToggleCard(
                 r,
@@ -431,13 +579,32 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
         </div>
       </div>
 
-      {/* Phase Timers */}
-      <div className="rounded-xl bg-slate-950/55 border border-slate-800 p-3 space-y-2">
-        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
+      {/* All Phase Timers */}
+      <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3 space-y-2.5">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-200">
           <Sliders className="w-3.5 h-3.5 text-amber-400" />
-          <span>Mərhələ Taymerləri</span>
+          <span>Bütün Mərhələ Taymerləri</span>
         </div>
-        <div className="grid grid-cols-3 gap-2 text-xs">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 text-xs">
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-1">
+              🎭 Rol Açılışı: {room.config.timers.roleReveal}s
+            </label>
+            <input
+              type="range"
+              min={4}
+              max={20}
+              step={1}
+              disabled={!isHost}
+              value={room.config.timers.roleReveal}
+              onChange={(e) =>
+                onUpdateConfig({
+                  timers: { roleReveal: Number(e.target.value) },
+                })
+              }
+              className="w-full accent-amber-500"
+            />
+          </div>
           <div>
             <label className="block text-[10px] text-slate-400 mb-1">
               🌙 Gecə: {room.config.timers.nightPhase}s
@@ -452,6 +619,25 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
               onChange={(e) =>
                 onUpdateConfig({
                   timers: { nightPhase: Number(e.target.value) },
+                })
+              }
+              className="w-full accent-amber-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-1">
+              🌅 Sübh Xülasəsi: {room.config.timers.dawnSummary}s
+            </label>
+            <input
+              type="range"
+              min={4}
+              max={20}
+              step={1}
+              disabled={!isHost}
+              value={room.config.timers.dawnSummary}
+              onChange={(e) =>
+                onUpdateConfig({
+                  timers: { dawnSummary: Number(e.target.value) },
                 })
               }
               className="w-full accent-amber-500"
@@ -495,6 +681,44 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
               className="w-full accent-amber-500"
             />
           </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-1">
+              ⚖️ Edam Nəticəsi: {room.config.timers.executionReveal}s
+            </label>
+            <input
+              type="range"
+              min={4}
+              max={20}
+              step={1}
+              disabled={!isHost}
+              value={room.config.timers.executionReveal}
+              onChange={(e) =>
+                onUpdateConfig({
+                  timers: { executionReveal: Number(e.target.value) },
+                })
+              }
+              className="w-full accent-amber-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] text-slate-400 mb-1">
+              🏹 Ovçu İntiqamı: {room.config.timers.hunterRevenge}s
+            </label>
+            <input
+              type="range"
+              min={10}
+              max={30}
+              step={1}
+              disabled={!isHost}
+              value={room.config.timers.hunterRevenge}
+              onChange={(e) =>
+                onUpdateConfig({
+                  timers: { hunterRevenge: Number(e.target.value) },
+                })
+              }
+              className="w-full accent-amber-500"
+            />
+          </div>
         </div>
       </div>
 
@@ -510,7 +734,7 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
           type="button"
           disabled={playerCount < 4 || playerCount > 16}
           onClick={onStartGame}
-          className={`w-full py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${
+          className={`w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-lg ${
             playerCount >= 4 && playerCount <= 16
               ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 cursor-pointer'
               : 'bg-slate-800 text-slate-500 cursor-not-allowed'
@@ -531,7 +755,7 @@ export const LobbyConfigPanel: React.FC<LobbyConfigPanelProps> = ({
         </button>
       ) : (
         <div className="w-full py-3 rounded-xl bg-slate-800/70 border border-slate-700 text-center text-xs text-slate-300 font-medium">
-          ⏳ Otaq rəhbərinin oyunu başlatması gözlənilir...
+          ⏳ Otaq rəhbərinin rolları seçib oyunu başlatması gözlənilir...
         </div>
       )}
     </div>

@@ -17,7 +17,7 @@ import {
  *
  * Strips hidden roles from other players, sending `role: "UNKNOWN"` unless:
  * 1. The target is the requesting player themselves.
- * 2. Both players are on the Qətil (Werewolf) team (except White Wolf appears as standard WEREWOLF to teammates).
+ * 2. Both players are on the Qatil (Werewolf) team (except White Wolf appears as standard WEREWOLF to teammates).
  * 3. The game has ended (`phase === 'GAME_OVER'`).
  * 4. The requesting player is dead (Spectator mode).
  */
@@ -44,7 +44,7 @@ export function sanitizeStateForPlayer(
         visibleRole = target.role;
         visibleFaction = target.faction;
       } else if (bothAreWolves) {
-        // White Wolf appears as a standard Werewolf to fellow Qətil teammates
+        // White Wolf appears as a standard Werewolf to fellow Qatil teammates
         visibleRole = target.role === 'WHITE_WOLF' ? 'WEREWOLF' : target.role;
         visibleFaction = 'WEREWOLF';
       }
@@ -151,6 +151,29 @@ export function sanitizeStateForPlayer(
           );
           nightActionSummary = t ? `🛢️ Benzin tökülür: ${t.nickname}` : null;
         }
+      } else if (viewer.role === 'CROW' && roomState.nightActions.crowTargetId) {
+        const t = roomState.players.find(
+          (p) => p.id === roomState.nightActions.crowTargetId
+        );
+        nightActionSummary = t ? `🐦‍⬛ Lənətlənir: ${t.nickname}` : null;
+      } else if (
+        viewer.role === 'CUPID' &&
+        roomState.nightActions.cupidTargetIds
+      ) {
+        const [id1, id2] = roomState.nightActions.cupidTargetIds;
+        const p1 = roomState.players.find((p) => p.id === id1);
+        const p2 = roomState.players.find((p) => p.id === id2);
+        if (p1 && p2) {
+          nightActionSummary = `💘 Aşiqlər seçildi: ${p1.nickname} & ${p2.nickname}`;
+        }
+      } else if (
+        viewer.role === 'WILD_CHILD' &&
+        roomState.nightActions.wildChildModelId
+      ) {
+        const t = roomState.players.find(
+          (p) => p.id === roomState.nightActions.wildChildModelId
+        );
+        nightActionSummary = t ? `🐾 Rol Model seçildi: ${t.nickname}` : null;
       }
     }
 
@@ -178,12 +201,24 @@ export function sanitizeStateForPlayer(
         viewer.role === 'BLACK_WOLF'
           ? roomState.blackWolfInfectionAvailable
           : null,
+      shadowWolfAbilityAvailable:
+        viewer.role === 'SHADOW_WOLF'
+          ? roomState.shadowWolfAbilityAvailable
+          : null,
+      loverPartnerId: viewer.loverPartnerId,
+      roleModelId:
+        viewer.role === 'WILD_CHILD' || viewer.transformedFromWildChild
+          ? viewer.roleModelId
+          : null,
+      transformedFromWildChild: viewer.transformedFromWildChild,
       currentWolfTargetId: canSeeWolfVictim ? consensusWolfTargetId : null,
       hasSubmittedNightAction:
         roomState.nightActions.submittedPlayerIds.includes(viewer.id),
       nightActionSummary,
       wasInfectedToWolf:
-        viewer.originalRole !== 'WEREWOLF' && viewer.role === 'WEREWOLF',
+        !viewer.transformedFromWildChild &&
+        viewer.originalRole !== 'WEREWOLF' &&
+        viewer.role === 'WEREWOLF',
     };
   }
 
@@ -209,6 +244,16 @@ export function sanitizeStateForPlayer(
   };
 
   const canSeeWolfVotes = isViewerWolf || isViewerDeadSpectator || isGameOver;
+  const hideVotesNow =
+    roomState.dayVotesHidden && roomState.phase === 'DAY_VOTING';
+  const sanitizedDayVotes: Record<string, string | 'SKIP'> = {};
+  if (hideVotesNow) {
+    if (viewer && viewer.id in roomState.dayVotes) {
+      sanitizedDayVotes[viewer.id] = roomState.dayVotes[viewer.id];
+    }
+  } else {
+    Object.assign(sanitizedDayVotes, roomState.dayVotes);
+  }
 
   return {
     roomCode: roomState.roomCode,
@@ -226,7 +271,11 @@ export function sanitizeStateForPlayer(
         : false,
     lastNightCasualties: roomState.lastNightCasualties.map(sanitizeCasualty),
     skipDiscussionVotes: roomState.skipDiscussionVotes,
-    dayVotes: roomState.dayVotes,
+    dayVotes: sanitizedDayVotes,
+    dayVotesHidden: roomState.dayVotesHidden,
+    villagePowersLost: roomState.villagePowersLost,
+    lastBearGrowled: roomState.lastBearGrowled,
+    cursedPlayerId: roomState.cursedPlayerId,
     lastExecutedPlayer: roomState.lastExecutedPlayer
       ? sanitizeCasualty(roomState.lastExecutedPlayer)
       : null,

@@ -265,6 +265,15 @@ export function registerSocketHandlers(
       if (res.error) emitError('VOTE_ERROR', res.error);
     });
 
+    socket.on('day:shadowHideVotes', () => {
+      if (!session.roomCode || !session.playerId) return;
+      const res = roomManager.handleShadowWolfHideVotes(
+        session.roomCode,
+        session.playerId
+      );
+      if (res.error) emitError('ACTION_ERROR', res.error);
+    });
+
     socket.on('hunter:shoot', (payload: { targetId: string }) => {
       if (!session.roomCode || !session.playerId) return;
       const res = roomManager.handleHunterShot(

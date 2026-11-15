@@ -19,6 +19,16 @@ function markSubmitted(room: RoomState, playerId: string): void {
   }
 }
 
+function checkVillagePowers(room: RoomState): ValidationResult | null {
+  if (room.villagePowersLost) {
+    return {
+      valid: false,
+      error: 'Ağsaqqal edam edildiyi üçün Normal rolların xüsusi gücləri itirilib.',
+    };
+  }
+  return null;
+}
+
 function validateWolfVoteTarget(
   room: RoomState,
   payload: NightActionPayload
@@ -65,6 +75,7 @@ export class SeerStrategy implements RoleStrategy {
     return (
       room.phase === 'NIGHT_PHASE' &&
       player.isAlive &&
+      !room.villagePowersLost &&
       !room.nightActions.seerInspectedThisNight
     );
   }
@@ -74,6 +85,8 @@ export class SeerStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
+    const blocked = checkVillagePowers(room);
+    if (blocked) return blocked;
     if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'SEER_INSPECT') {
       return { valid: false, error: 'Kahin üçün yanlış əməliyyat.' };
@@ -106,6 +119,7 @@ export class SeerStrategy implements RoleStrategy {
   }
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
+    if (context.room.villagePowersLost) return;
     const targetId = context.room.nightActions.seerTargetId;
     if (!targetId) return;
     const target = context.room.players.find((p) => p.id === targetId);
@@ -118,7 +132,7 @@ export class GuardStrategy implements RoleStrategy {
   readonly metadata = buildRoleMetadata('GUARD');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive;
+    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
   }
 
   validateNightAction(
@@ -126,6 +140,8 @@ export class GuardStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
+    const blocked = checkVillagePowers(room);
+    if (blocked) return blocked;
     if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'GUARD_PROTECT') {
       return { valid: false, error: 'Mühafizəçi üçün yanlış əməliyyat.' };
@@ -156,6 +172,7 @@ export class GuardStrategy implements RoleStrategy {
   }
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
+    if (context.room.villagePowersLost) return;
     const targetId = context.room.nightActions.guardTargetId;
     if (!targetId) {
       actor.lastProtectedPlayerId = null;
@@ -178,6 +195,7 @@ export class WitchStrategy implements RoleStrategy {
     return (
       room.phase === 'NIGHT_PHASE' &&
       player.isAlive &&
+      !room.villagePowersLost &&
       (room.witchPotions.healAvailable || room.witchPotions.poisonAvailable)
     );
   }
@@ -187,6 +205,8 @@ export class WitchStrategy implements RoleStrategy {
     actor: PlayerState,
     payload: NightActionPayload
   ): ValidationResult {
+    const blocked = checkVillagePowers(room);
+    if (blocked) return blocked;
     if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
 
     if (payload.actionType === 'WITCH_HEAL') {
@@ -232,6 +252,7 @@ export class WitchStrategy implements RoleStrategy {
 
   resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
     const { room } = context;
+    if (room.villagePowersLost) return;
 
     if (
       room.nightActions.witchHealUsedThisNight &&
@@ -264,7 +285,7 @@ export class LittleGirlStrategy implements RoleStrategy {
   readonly metadata = buildRoleMetadata('LITTLE_GIRL');
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
-    return room.phase === 'NIGHT_PHASE' && player.isAlive;
+    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
   }
 
   validateNightAction(): ValidationResult {
@@ -275,8 +296,185 @@ export class LittleGirlStrategy implements RoleStrategy {
   resolveNightAction(): void {}
 }
 
+export class CrowStrategy implements RoleStrategy {
+  readonly metadata = buildRoleMetadata('CROW');
+
+  canActAtNight(room: RoomState, player: PlayerState): boolean {
+    return room.phase === 'NIGHT_PHASE' && player.isAlive && !room.villagePowersLost;
+  }
+
+  validateNightAction(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): ValidationResult {
+    const blocked = checkVillagePowers(room);
+    if (blocked) return blocked;
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
+    if (payload.actionType !== 'CROW_CURSE') {
+      return { valid: false, error: 'Qarğa üçün yanlış əməliyyat.' };
+    }
+    if (!payload.targetId || payload.targetId === actor.id) {
+      return { valid: false, error: 'Qarğa başqa bir canlı oyunçu seçməlidir.' };
+    }
+    const target = room.players.find((p) => p.id === payload.targetId);
+    if (!target || !target.isAlive) {
+      return { valid: false, error: 'Lənət hədəfi canlı oyunçu olmalıdır.' };
+    }
+    return { valid: true };
+  }
+
+  recordNightInput(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): void {
+    room.nightActions.crowTargetId = payload.targetId ?? null;
+    markSubmitted(room, actor.id);
+  }
+
+  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
+    const { room } = context;
+    if (room.villagePowersLost) return;
+    const targetId = room.nightActions.crowTargetId;
+    if (!targetId) return;
+    const target = room.players.find((p) => p.id === targetId && p.isAlive);
+    if (!target) return;
+    room.cursedPlayerId = target.id;
+    actor.stats.abilitiesUsed += 1;
+  }
+}
+
+export class CupidStrategy implements RoleStrategy {
+  readonly metadata = buildRoleMetadata('CUPID');
+
+  canActAtNight(room: RoomState, player: PlayerState): boolean {
+    return (
+      room.phase === 'NIGHT_PHASE' &&
+      player.isAlive &&
+      !room.villagePowersLost &&
+      room.nightNumber === 1 &&
+      !room.cupidLinked
+    );
+  }
+
+  validateNightAction(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): ValidationResult {
+    const blocked = checkVillagePowers(room);
+    if (blocked) return blocked;
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
+    if (room.nightNumber !== 1 || room.cupidLinked) {
+      return { valid: false, error: 'Kupid yalnız 1-ci gecə Aşiqləri bağlaya bilər.' };
+    }
+    if (payload.actionType !== 'CUPID_LINK') {
+      return { valid: false, error: 'Kupid üçün yanlış əməliyyat.' };
+    }
+    if (!payload.targetId || !payload.secondTargetId) {
+      return { valid: false, error: 'Bağlamaq üçün 2 fərqli canlı oyunçu seçin.' };
+    }
+    if (payload.targetId === payload.secondTargetId) {
+      return { valid: false, error: 'Kupid 2 fərqli oyunçu seçməlidir.' };
+    }
+    const p1 = room.players.find((p) => p.id === payload.targetId && p.isAlive);
+    const p2 = room.players.find((p) => p.id === payload.secondTargetId && p.isAlive);
+    if (!p1 || !p2) {
+      return { valid: false, error: 'Hər iki seçilmiş oyunçu canlı olmalıdır.' };
+    }
+    return { valid: true };
+  }
+
+  recordNightInput(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): void {
+    if (!payload.targetId || !payload.secondTargetId) return;
+    room.nightActions.cupidTargetIds = [payload.targetId, payload.secondTargetId];
+    markSubmitted(room, actor.id);
+  }
+
+  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
+    const { room } = context;
+    if (room.villagePowersLost || room.nightNumber !== 1 || room.cupidLinked) return;
+    const ids = room.nightActions.cupidTargetIds;
+    if (!ids) return;
+    const [id1, id2] = ids;
+    if (!id1 || !id2 || id1 === id2) return;
+    const p1 = room.players.find((p) => p.id === id1 && p.isAlive);
+    const p2 = room.players.find((p) => p.id === id2 && p.isAlive);
+    if (!p1 || !p2) return;
+
+    p1.loverPartnerId = p2.id;
+    p2.loverPartnerId = p1.id;
+    room.cupidLinked = true;
+    actor.stats.abilitiesUsed += 1;
+  }
+}
+
+export class WildChildStrategy implements RoleStrategy {
+  readonly metadata = buildRoleMetadata('WILD_CHILD');
+
+  canActAtNight(room: RoomState, player: PlayerState): boolean {
+    return (
+      room.phase === 'NIGHT_PHASE' &&
+      player.isAlive &&
+      room.nightNumber === 1 &&
+      !player.roleModelId
+    );
+  }
+
+  validateNightAction(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): ValidationResult {
+    if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
+    if (room.nightNumber !== 1 || actor.roleModelId) {
+      return { valid: false, error: 'Vəhşi Uşaq yalnız 1-ci gecə Rol Model seçə bilər.' };
+    }
+    if (payload.actionType !== 'WILD_CHILD_MODEL') {
+      return { valid: false, error: 'Vəhşi Uşaq üçün yanlış əməliyyat.' };
+    }
+    if (!payload.targetId || payload.targetId === actor.id) {
+      return { valid: false, error: 'Özünüzdən başqa 1 canlı oyunçu seçin.' };
+    }
+    const target = room.players.find((p) => p.id === payload.targetId && p.isAlive);
+    if (!target) {
+      return { valid: false, error: 'Rol Model canlı oyunçu olmalıdır.' };
+    }
+    return { valid: true };
+  }
+
+  recordNightInput(
+    room: RoomState,
+    actor: PlayerState,
+    payload: NightActionPayload
+  ): void {
+    room.nightActions.wildChildModelId = payload.targetId ?? null;
+    markSubmitted(room, actor.id);
+  }
+
+  resolveNightAction(context: NightResolutionContext, actor: PlayerState): void {
+    const { room } = context;
+    if (room.nightNumber !== 1 || actor.roleModelId) return;
+    const modelId = room.nightActions.wildChildModelId;
+    if (!modelId || modelId === actor.id) return;
+    const target = room.players.find((p) => p.id === modelId && p.isAlive);
+    if (!target) return;
+    actor.roleModelId = target.id;
+    actor.stats.abilitiesUsed += 1;
+  }
+}
+
 export class WerewolfStrategy implements RoleStrategy {
-  readonly metadata = buildRoleMetadata('WEREWOLF');
+  readonly metadata;
+
+  constructor(role: 'WEREWOLF' | 'VENGEFUL_WOLF' | 'SHADOW_WOLF' = 'WEREWOLF') {
+    this.metadata = buildRoleMetadata(role);
+  }
 
   canActAtNight(room: RoomState, player: PlayerState): boolean {
     return room.phase === 'NIGHT_PHASE' && player.isAlive;
@@ -289,7 +487,7 @@ export class WerewolfStrategy implements RoleStrategy {
   ): ValidationResult {
     if (!actor.isAlive) return { valid: false, error: 'Ölü oyunçular hərəkət edə bilməz.' };
     if (payload.actionType !== 'WOLF_VOTE') {
-      return { valid: false, error: 'Canavar üçün yanlış əməliyyat.' };
+      return { valid: false, error: `${this.metadata.nameAz} üçün yanlış əməliyyat.` };
     }
     return validateWolfVoteTarget(room, payload);
   }
@@ -473,7 +671,7 @@ export class WhiteWolfStrategy implements RoleStrategy {
       if (!target || !target.isAlive || !isWolfPackRole(target.role)) {
         return {
           valid: false,
-          error: 'Ağ Canavar yalnız digər sağ Qətil üzvünə xəyanət edə bilər.',
+          error: 'Ağ Canavar yalnız digər sağ Qatil üzvünə xəyanət edə bilər.',
         };
       }
       return { valid: true };
@@ -614,14 +812,22 @@ export const ROLE_STRATEGIES: Record<RoleType, RoleStrategy> = {
   GUARD: new GuardStrategy(),
   HUNTER: new PassiveRoleStrategy('HUNTER'),
   LITTLE_GIRL: new LittleGirlStrategy(),
-  // Qətil (Werewolves)
-  WEREWOLF: new WerewolfStrategy(),
+  ELDER: new PassiveRoleStrategy('ELDER'),
+  BEAR_TAMER: new PassiveRoleStrategy('BEAR_TAMER'),
+  CROW: new CrowStrategy(),
+  CUPID: new CupidStrategy(),
+  // Qatil (Werewolves)
+  WEREWOLF: new WerewolfStrategy('WEREWOLF'),
   BLACK_WOLF: new BlackWolfStrategy(),
   MYSTIC_WOLF: new MysticWolfStrategy(),
+  VENGEFUL_WOLF: new WerewolfStrategy('VENGEFUL_WOLF'),
+  SHADOW_WOLF: new WerewolfStrategy('SHADOW_WOLF'),
   // Tərəfsiz (Neutrals)
   ANGEL: new PassiveRoleStrategy('ANGEL'),
   WHITE_WOLF: new WhiteWolfStrategy(),
   ARSONIST: new ArsonistStrategy(),
+  JESTER: new PassiveRoleStrategy('JESTER'),
+  WILD_CHILD: new WildChildStrategy(),
 };
 
 export function getRoleStrategy(role: RoleType): RoleStrategy {

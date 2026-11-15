@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Crown, Lock, Mic, Skull, Target, X } from 'lucide-react';
 import { ROLE_CATALOG } from '../constants/roles';
@@ -24,6 +24,8 @@ const WOLF_PACK_ROLES: ReadonlySet<RoleType | 'UNKNOWN'> = new Set([
   'WEREWOLF',
   'BLACK_WOLF',
   'MYSTIC_WOLF',
+  'VENGEFUL_WOLF',
+  'SHADOW_WOLF',
   'WHITE_WOLF',
 ]);
 
@@ -46,6 +48,18 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
     isHunterActive && room.hunterRevenge?.hunterId === self?.playerId;
 
   const isWolfPack = self ? WOLF_PACK_ROLES.has(self.role) : false;
+  const [cupidFirstPickId, setCupidFirstPickId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (
+      !isNight ||
+      room.nightNumber !== 1 ||
+      self?.role !== 'CUPID' ||
+      room.villagePowersLost
+    ) {
+      setCupidFirstPickId(null);
+    }
+  }, [isNight, room.nightNumber, self?.role, room.villagePowersLost]);
 
   const totalPlayers = room.players.length;
   const isDenseRing = totalPlayers >= 12;
@@ -84,6 +98,7 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
 
     if (activeNightMode === 'WITCH_POISON') {
       return (
+        !room.villagePowersLost &&
         self.role === 'WITCH' &&
         Boolean(self.witchPotions?.poisonAvailable) &&
         seat.isAlive &&
@@ -115,12 +130,32 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
       return seat.isAlive && !WOLF_PACK_ROLES.has(seat.role);
     }
 
-    if (self.role === 'SEER') {
+    if (self.role === 'SEER' && !room.villagePowersLost) {
       return seat.isAlive && seat.id !== self.playerId;
     }
 
-    if (self.role === 'GUARD') {
+    if (self.role === 'GUARD' && !room.villagePowersLost) {
       return seat.isAlive && seat.id !== self.lastProtectedPlayerId;
+    }
+
+    if (self.role === 'CROW' && !room.villagePowersLost) {
+      return seat.isAlive && seat.id !== self.playerId;
+    }
+
+    if (
+      self.role === 'CUPID' &&
+      !room.villagePowersLost &&
+      room.nightNumber === 1
+    ) {
+      return seat.isAlive;
+    }
+
+    if (
+      self.role === 'WILD_CHILD' &&
+      room.nightNumber === 1 &&
+      !self.roleModelId
+    ) {
+      return seat.isAlive && seat.id !== self.playerId;
     }
 
     if (self.role === 'ARSONIST') {
@@ -173,6 +208,26 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
       onSelectNightTarget({ actionType: 'SEER_INSPECT', targetId: seat.id });
     } else if (self.role === 'GUARD') {
       onSelectNightTarget({ actionType: 'GUARD_PROTECT', targetId: seat.id });
+    } else if (self.role === 'CROW') {
+      onSelectNightTarget({ actionType: 'CROW_CURSE', targetId: seat.id });
+    } else if (self.role === 'CUPID') {
+      if (!cupidFirstPickId) {
+        setCupidFirstPickId(seat.id);
+      } else if (cupidFirstPickId === seat.id) {
+        setCupidFirstPickId(null);
+      } else {
+        onSelectNightTarget({
+          actionType: 'CUPID_LINK',
+          targetId: cupidFirstPickId,
+          secondTargetId: seat.id,
+        });
+        setCupidFirstPickId(null);
+      }
+    } else if (self.role === 'WILD_CHILD') {
+      onSelectNightTarget({
+        actionType: 'WILD_CHILD_MODEL',
+        targetId: seat.id,
+      });
     } else if (self.role === 'ARSONIST') {
       onSelectNightTarget({ actionType: 'ARSONIST_DOUSE', targetId: seat.id });
     }
@@ -200,11 +255,15 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
       selfPlayer?.isAlive &&
       self &&
       !isWolfPack &&
-      self.role !== 'SEER' &&
-      self.role !== 'WITCH' &&
-      self.role !== 'GUARD' &&
-      self.role !== 'LITTLE_GIRL' &&
-      self.role !== 'ARSONIST'
+      self.role !== 'ARSONIST' &&
+      (room.villagePowersLost ||
+        (self.role !== 'SEER' &&
+          self.role !== 'WITCH' &&
+          self.role !== 'GUARD' &&
+          self.role !== 'LITTLE_GIRL' &&
+          self.role !== 'CROW' &&
+          !(self.role === 'CUPID' && room.nightNumber === 1))) &&
+      !(self.role === 'WILD_CHILD' && room.nightNumber === 1 && !self.roleModelId)
   );
 
   const seatCircleSizeClass = isUltraDenseRing
@@ -289,6 +348,20 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
           !roleMeta &&
           room.phase !== 'LOBBY' &&
           !room.config.revealDeadRoles;
+        const isCupidFirstPick =
+          isNight && self?.role === 'CUPID' && cupidFirstPickId === seat.id;
+        const isCursed =
+          room.cursedPlayerId === seat.id &&
+          (isVoting ||
+            room.phase === 'DAY_DISCUSSION' ||
+            room.phase === 'EXECUTION_REVEAL');
+        const isLoverLink = Boolean(
+          self?.loverPartnerId &&
+            (seat.id === self.loverPartnerId || isSelf)
+        );
+        const isRoleModelTarget = Boolean(
+          self?.roleModelId && seat.id === self.roleModelId
+        );
 
         return (
           <div
@@ -303,10 +376,27 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
               className="relative flex flex-col items-center group"
             >
             <div className="relative">
-              {/* Day Vote Count Pill */}
-              {isVoting && votesOnSeat > 0 && (
+              {/* Day Vote Count Pill (hidden if Shadow Wolf activated stealth) */}
+              {isVoting && !room.dayVotesHidden && votesOnSeat > 0 && (
                 <div className="absolute -top-2 -right-2 z-30 px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-extrabold text-[10px] shadow-md border border-amber-200">
                   🗳️ {votesOnSeat}
+                </div>
+              )}
+
+              {/* Crow Curse +2 Penalty Votes Pill */}
+              {isCursed && (
+                <div
+                  className="absolute -top-2 -left-2 z-30 px-1.5 py-0.5 rounded-full bg-indigo-600 text-white font-extrabold text-[10px] shadow-md border border-indigo-300"
+                  title="Qarğa lənəti (+2 cəza səsi)"
+                >
+                  🐦‍⬛ +2
+                </div>
+              )}
+
+              {/* Cupid 1st Selected Lover Indicator */}
+              {isCupidFirstPick && (
+                <div className="absolute -top-2 -right-2 z-30 px-1.5 py-0.5 rounded-full bg-pink-600 text-white font-extrabold text-[10px] shadow-md border border-pink-200">
+                  💘 1/2
                 </div>
               )}
 
@@ -440,6 +530,20 @@ export const CampfireArena: React.FC<CampfireArenaProps> = ({
                 <div className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-semibold border bg-slate-900/90 border-slate-700 text-slate-400 flex items-center gap-0.5">
                   <Lock className="w-2.5 h-2.5" />
                   <span>Gizli</span>
+                </div>
+              )}
+
+              {/* Lover Link Badge */}
+              {isLoverLink && (
+                <div className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold border bg-pink-950/85 text-pink-200 border-pink-500/50 truncate max-w-full">
+                  💘 Aşiq
+                </div>
+              )}
+
+              {/* Wild Child Role Model Badge */}
+              {isRoleModelTarget && (
+                <div className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold border bg-lime-950/85 text-lime-200 border-lime-500/50 truncate max-w-full">
+                  🐾 Rol Model
                 </div>
               )}
 

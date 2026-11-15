@@ -22,21 +22,21 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
 
   const groups: { title: string; subtitle: string; items: RoleInfo[] }[] = [
     {
-      title: '1. Normal Komandası (Village — 6 Rol)',
+      title: '1. Normal Komandası (Village — 10 Rol)',
       subtitle:
-        'Bütün Qətillər və ölümcül Tərəfsizlər (Ağ Canavar, Alovçu) məhv edildikdə qazanır',
+        'Bütün Qatillər və ölümcül Tərəfsizlər (Ağ Canavar, Alovçu) məhv edildikdə qazanır',
       items: VILLAGE_ROLES.map((r) => ROLE_CATALOG[r]),
     },
     {
-      title: '2. Qətil Komandası (Werewolf — 3 Rol)',
+      title: '2. Qatil Komandası (Werewolf — 5 Rol)',
       subtitle:
-        'Ölümcül Tərəfsizlər öldükdən sonra Qətillərin sayı qalanlara bərabər və ya çox olduqda qazanır',
+        'Ölümcül Tərəfsizlər öldükdən sonra Qatillərin sayı qalanlara bərabər və ya çox olduqda qazanır',
       items: WEREWOLF_ROLES.map((r) => ROLE_CATALOG[r]),
     },
     {
-      title: '3. Tərəfsiz Komanda (Neutral — 3 Rol)',
+      title: '3. Tərəfsiz Komanda (Neutral — 5 Rol)',
       subtitle:
-        'Şəxsi qələbə şərtinə malik müstəqil oyunçular (6+ nəfərlik otaqlarda aktiv olur)',
+        'Şəxsi qələbə şərtinə malik müstəqil rollar (6+ nəfərlik otaqlarda aktiv olur)',
       items: NEUTRAL_ROLES.map((r) => ROLE_CATALOG[r]),
     },
   ];
@@ -49,7 +49,7 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
             <BookOpen className="w-5 h-5 text-amber-400" />
             <div>
               <h2 className="text-base font-bold text-white">
-                Campfire Wolves — 12 Rol Bələdçisi
+                Campfire Wolves — 20 Rol Bələdçisi
               </h2>
               <p className="text-xs text-slate-400">
                 4–16 oyunçu üçün avtomatik kvota və rollar
@@ -115,7 +115,7 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
           <div className="grid grid-cols-4 gap-1 text-[11px] font-semibold text-slate-400 border-b border-slate-800 pb-1">
             <span>Oyunçu</span>
             <span className="text-emerald-400">Normal</span>
-            <span className="text-red-400">Qətil</span>
+            <span className="text-red-400">Qatil</span>
             <span className="text-violet-400">Tərəfsiz</span>
           </div>
           <div className="space-y-1 max-h-52 overflow-y-auto pr-1 text-xs">
@@ -126,7 +126,7 @@ export const RoleReferenceDrawer: React.FC<RoleReferenceDrawerProps> = ({
               >
                 <span className="font-bold">{count} nəfər</span>
                 <span className="text-emerald-300">{q.normal}</span>
-                <span className="text-red-300">{q.qetil}</span>
+                <span className="text-red-300">{q.qatil}</span>
                 <span className="text-violet-300">{q.terefsiz}</span>
               </div>
             ))}

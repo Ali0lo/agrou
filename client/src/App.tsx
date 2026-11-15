@@ -251,6 +251,11 @@ export const App: React.FC = () => {
     socketRef.current?.emit('day:vote', { targetId });
   };
 
+  const handleShadowHideVotes = () => {
+    soundEngine.play('CLICK');
+    socketRef.current?.emit('day:shadowHideVotes');
+  };
+
   const handleHunterShoot = (targetId: string) => {
     socketRef.current?.emit('hunter:shoot', { targetId });
   };
@@ -544,37 +549,48 @@ export const App: React.FC = () => {
         ) : (
           /* Active Room Layout: Campfire Circle + Contextual Panels + Chat */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left / Center Column: Campfire Arena & Phase Controls */}
+            {/* Left / Center Column: Lobby Settings First Before Starting, Then Full Arena */}
             <div className="lg:col-span-7 xl:col-span-8 space-y-5">
-              {room.phase !== 'LOBBY' && (
-                <PhaseActionToolbar
-                  room={room}
-                  activeNightMode={activeNightMode}
-                  onSetActiveNightMode={setActiveNightMode}
-                  onSubmitNightAction={handleNightAction}
-                  onToggleLittleGirlPeek={handleToggleLittleGirlPeek}
-                  onToggleSkipDiscussion={handleToggleSkipDiscussion}
-                  onCastDayVote={handleCastDayVote}
-                  onPlayAgain={handlePlayAgain}
-                />
-              )}
+              {room.phase === 'LOBBY' ? (
+                <>
+                  <LobbyConfigPanel
+                    room={room}
+                    onUpdateConfig={handleUpdateConfig}
+                    onAddBot={handleAddBot}
+                    onStartGame={handleStartGame}
+                  />
+                  <CampfireArena
+                    room={room}
+                    activeNightMode={activeNightMode}
+                    onSelectNightTarget={handleNightAction}
+                    onCastDayVote={handleCastDayVote}
+                    onHunterShoot={handleHunterShoot}
+                    onRemovePlayer={handleRemovePlayer}
+                  />
+                </>
+              ) : (
+                <>
+                  <PhaseActionToolbar
+                    room={room}
+                    activeNightMode={activeNightMode}
+                    onSetActiveNightMode={setActiveNightMode}
+                    onSubmitNightAction={handleNightAction}
+                    onToggleLittleGirlPeek={handleToggleLittleGirlPeek}
+                    onToggleSkipDiscussion={handleToggleSkipDiscussion}
+                    onCastDayVote={handleCastDayVote}
+                    onShadowHideVotes={handleShadowHideVotes}
+                    onPlayAgain={handlePlayAgain}
+                  />
 
-              <CampfireArena
-                room={room}
-                activeNightMode={activeNightMode}
-                onSelectNightTarget={handleNightAction}
-                onCastDayVote={handleCastDayVote}
-                onHunterShoot={handleHunterShoot}
-                onRemovePlayer={handleRemovePlayer}
-              />
-
-              {room.phase === 'LOBBY' && (
-                <LobbyConfigPanel
-                  room={room}
-                  onUpdateConfig={handleUpdateConfig}
-                  onAddBot={handleAddBot}
-                  onStartGame={handleStartGame}
-                />
+                  <CampfireArena
+                    room={room}
+                    activeNightMode={activeNightMode}
+                    onSelectNightTarget={handleNightAction}
+                    onCastDayVote={handleCastDayVote}
+                    onHunterShoot={handleHunterShoot}
+                    onRemovePlayer={handleRemovePlayer}
+                  />
+                </>
               )}
             </div>
 

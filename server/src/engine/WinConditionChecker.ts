@@ -1,5 +1,5 @@
 import { MvpAward, RoomState, WinningFaction } from '../types/game.js';
-import { isQetilFactionRole, isWolfPackRole } from './roles/RoleStrategy.js';
+import { isQatilFactionRole, isWolfPackRole } from './roles/RoleStrategy.js';
 
 export interface WinCheckResult {
   isGameOver: boolean;
@@ -13,11 +13,19 @@ export class WinConditionChecker {
     context?: { justExecutedPlayerId?: string }
   ): WinCheckResult {
     // 1. Day 1 Angel Instant Execution Win
-    if (context?.justExecutedPlayerId && room.dayNumber === 1) {
+    // 1. Jester any-day Vote Execution solo win & Angel Day 1 Vote Execution solo win
+    if (context?.justExecutedPlayerId) {
       const executed = room.players.find(
         (p) => p.id === context.justExecutedPlayerId
       );
-      if (executed && executed.role === 'ANGEL') {
+      if (executed && executed.role === 'JESTER') {
+        return {
+          isGameOver: true,
+          winner: 'JESTER',
+          reason: `🃏 ${executed.nickname} (Təlxək / Jester) kənd səsverməsində edam edildi və təkbaşına qalib gəldi!`,
+        };
+      }
+      if (executed && executed.role === 'ANGEL' && room.dayNumber === 1) {
         return {
           isGameOver: true,
           winner: 'ANGEL',
@@ -37,13 +45,35 @@ export class WinConditionChecker {
       };
     }
 
+    // 2b. Mixed-faction Lovers solo duo win (last 2 survivors together)
+    const hasAliveMixedLovers = alivePlayers.some((p) => {
+      if (!p.loverPartnerId) return false;
+      const partner = alivePlayers.find((o) => o.id === p.loverPartnerId);
+      return Boolean(partner && partner.faction !== p.faction);
+    });
+
+    if (alivePlayers.length === 2) {
+      const [first, second] = alivePlayers;
+      if (
+        first.loverPartnerId === second.id &&
+        second.loverPartnerId === first.id &&
+        first.faction !== second.faction
+      ) {
+        return {
+          isGameOver: true,
+          winner: 'LOVERS',
+          reason: `💘 Aşiqlər (${first.nickname} & ${second.nickname}) fərqli komandalardan olsalar da son 2 sağ qalan olaraq qalib gəldilər!`,
+        };
+      }
+    }
+
     const aliveWhiteWolves = alivePlayers.filter((p) => p.role === 'WHITE_WOLF');
     const aliveArsonists = alivePlayers.filter((p) => p.role === 'ARSONIST');
-    const aliveQetilWolves = alivePlayers.filter((p) =>
-      isQetilFactionRole(p.role)
+    const aliveQatilWolves = alivePlayers.filter((p) =>
+      isQatilFactionRole(p.role)
     );
     const totalHostileThreats =
-      aliveQetilWolves.length +
+      aliveQatilWolves.length +
       aliveWhiteWolves.length +
       aliveArsonists.length;
 
@@ -67,29 +97,30 @@ export class WinConditionChecker {
       };
     }
 
-    // 5. Normal (Village Team) win: all Qətil and lethal Tərəfsiz (White Wolf, Arsonist) eliminated
+    // 5. Normal (Village Team) win: all Qatil and lethal Tərəfsiz (White Wolf, Arsonist) eliminated
     if (totalHostileThreats === 0) {
       return {
         isGameOver: true,
         winner: 'VILLAGE',
         reason:
-          '🌾 Bütün Qətillər və təhlükəli Tərəfsizlər zərərsizləşdirildi! Normal (Kənd) komandası qalib gəldi!',
+          '🌾 Bütün Qatillər və təhlükəli Tərəfsizlər zərərsizləşdirildi! Normal (Kənd) komandası qalib gəldi!',
       };
     }
 
-    // 6. Qətil (Werewolf Team) win: alive Qətil equal or outnumber all other alive players
-    // (while White Wolf & Arsonist no longer remain alive to contest sole survival)
+    // 6. Qatil (Werewolf Team) win: alive Qatil equal or outnumber all other alive players
+    // (while White Wolf, Arsonist, and cross-faction Lovers no longer contest survival)
     const aliveNonWolves = alivePlayers.filter((p) => !isWolfPackRole(p.role));
     if (
+      !hasAliveMixedLovers &&
       aliveWhiteWolves.length === 0 &&
       aliveArsonists.length === 0 &&
-      aliveQetilWolves.length >= aliveNonWolves.length
+      aliveQatilWolves.length >= aliveNonWolves.length
     ) {
       return {
         isGameOver: true,
         winner: 'WEREWOLF',
         reason:
-          '🐺 Qətillər (Canavarlar) qalan bütün oyunçuların sayına çatdı və qalib gəldi!',
+          '🐺 Qatillər (Canavarlar) qalan bütün oyunçuların sayına çatdı və qalib gəldi!',
       };
     }
 
@@ -159,7 +190,7 @@ export class WinConditionChecker {
         nickname: bestVoter.nickname,
         role: bestVoter.role,
         title: 'İti İntuisiya (Sharpest Instincts)',
-        description: `Qətillərə qarşı ${bestVoter.stats.correctWolfVotes} dəqiq səs verdi.`,
+        description: `Qatillərə qarşı ${bestVoter.stats.correctWolfVotes} dəqiq səs verdi.`,
       });
     }
 

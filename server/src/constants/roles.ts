@@ -7,7 +7,7 @@ export interface RoleDefinition {
   displayName: string;
   icon: string;
   faction: Faction;
-  factionLabel: 'Normal' | 'Qətil' | 'Tərəfsiz';
+  factionLabel: 'Normal' | 'Qatil' | 'Tərəfsiz';
   isBaseFiller?: boolean;
   shortDescription: string;
   winCondition: string;
@@ -17,22 +17,22 @@ export interface RoleDefinition {
 
 /**
  * Automatic Faction Distribution Quota Table for 4 to 16 players.
- * Sum of (normal + qetil + terefsiz) === playerCount for every N in [4..16].
+ * Sum of (normal + qatil + terefsiz) === playerCount for every N in [4..16].
  */
 export const FACTION_QUOTA_TABLE: Record<number, FactionQuota> = {
-  4: { normal: 3, qetil: 1, terefsiz: 0 },
-  5: { normal: 4, qetil: 1, terefsiz: 0 },
-  6: { normal: 4, qetil: 1, terefsiz: 1 },
-  7: { normal: 5, qetil: 1, terefsiz: 1 },
-  8: { normal: 5, qetil: 2, terefsiz: 1 },
-  9: { normal: 6, qetil: 2, terefsiz: 1 },
-  10: { normal: 6, qetil: 2, terefsiz: 2 },
-  11: { normal: 7, qetil: 2, terefsiz: 2 },
-  12: { normal: 7, qetil: 2, terefsiz: 3 },
-  13: { normal: 8, qetil: 3, terefsiz: 2 },
-  14: { normal: 9, qetil: 3, terefsiz: 2 },
-  15: { normal: 9, qetil: 3, terefsiz: 3 },
-  16: { normal: 10, qetil: 3, terefsiz: 3 },
+  4: { normal: 3, qatil: 1, terefsiz: 0 },
+  5: { normal: 4, qatil: 1, terefsiz: 0 },
+  6: { normal: 4, qatil: 1, terefsiz: 1 },
+  7: { normal: 5, qatil: 1, terefsiz: 1 },
+  8: { normal: 5, qatil: 2, terefsiz: 1 },
+  9: { normal: 6, qatil: 2, terefsiz: 1 },
+  10: { normal: 6, qatil: 2, terefsiz: 2 },
+  11: { normal: 7, qatil: 2, terefsiz: 2 },
+  12: { normal: 7, qatil: 2, terefsiz: 3 },
+  13: { normal: 8, qatil: 3, terefsiz: 2 },
+  14: { normal: 9, qatil: 3, terefsiz: 2 },
+  15: { normal: 9, qatil: 3, terefsiz: 3 },
+  16: { normal: 10, qatil: 3, terefsiz: 3 },
 };
 
 export const NORMAL_SPECIAL_ROLES: RoleType[] = [
@@ -41,17 +41,32 @@ export const NORMAL_SPECIAL_ROLES: RoleType[] = [
   'GUARD',
   'HUNTER',
   'LITTLE_GIRL',
+  'ELDER',
+  'BEAR_TAMER',
+  'CROW',
+  'CUPID',
 ];
 
-export const QETIL_SPECIAL_ROLES: RoleType[] = ['BLACK_WOLF', 'MYSTIC_WOLF'];
+export const QATIL_SPECIAL_ROLES: RoleType[] = [
+  'BLACK_WOLF',
+  'MYSTIC_WOLF',
+  'VENGEFUL_WOLF',
+  'SHADOW_WOLF',
+];
 
-export const TEREFSIZ_ROLES: RoleType[] = ['ANGEL', 'WHITE_WOLF', 'ARSONIST'];
+export const TEREFSIZ_ROLES: RoleType[] = [
+  'ANGEL',
+  'WHITE_WOLF',
+  'ARSONIST',
+  'JESTER',
+  'WILD_CHILD',
+];
 
 export const ALL_PLAYABLE_ROLES: RoleType[] = [
   'VILLAGER',
   ...NORMAL_SPECIAL_ROLES,
   'WEREWOLF',
-  ...QETIL_SPECIAL_ROLES,
+  ...QATIL_SPECIAL_ROLES,
   ...TEREFSIZ_ROLES,
 ];
 
@@ -69,9 +84,9 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     factionLabel: 'Normal',
     isBaseFiller: true,
     shortDescription:
-      'Gecə xüsusi gücü yoxdur; gündüz müzakirə və səsvermə ilə Qətil və təhlükəli Tərəfsiz rolları tapır.',
+      'Gecə xüsusi gücü yoxdur; gündüz müzakirə və səsvermə ilə Qatil və təhlükəli Tərəfsiz rolları tapır.',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər (Ağ Canavar, Alovçu) məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər (Ağ Canavar, Alovçu) məhv edildikdə Normal komandası qazanır.',
     hasNightAction: false,
     nightTurnPriority: 99,
   },
@@ -86,7 +101,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     shortDescription:
       'Hər gecə 1 oyunçunu yoxlayır və onun dəqiq rolunu öyrənir.',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 20,
   },
@@ -101,7 +116,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     shortDescription:
       'Oyun boyu 1 Həyat İksiri (gecə Canavarların hədəfini görüb xilas edir) və 1 Ölüm İksiri (istənilən oyunçunu öldürür) var.',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 50,
   },
@@ -114,9 +129,9 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     faction: 'VILLAGE',
     factionLabel: 'Normal',
     shortDescription:
-      'Hər gecə 1 oyunçunu Qətil hücumlarından qoruyur (ardıcıl 2 gecə eyni oyunçunu qoruya bilməz).',
+      'Hər gecə 1 oyunçunu Qatil hücumlarından qoruyur (ardıcıl 2 gecə eyni oyunçunu qoruya bilməz).',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 10,
   },
@@ -131,7 +146,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     shortDescription:
       'Gecə və ya gündüz öldürüldükdə 15 saniyə ərzində sağ qalan 1 oyunçunu vuraraq özü ilə aparır.',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
     hasNightAction: false,
     nightTurnPriority: 99,
   },
@@ -144,15 +159,75 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     faction: 'VILLAGE',
     factionLabel: 'Normal',
     shortDescription:
-      'Gecə Qətil çatına anonim ("Canavar ???") baxa bilər, lakin baxdıqca canavarlara ifşa olma riski artır.',
+      'Gecə Qatil çatına anonim ("Canavar ???") baxa bilər, lakin baxdıqca canavarlara ifşa olma riski artır.',
     winCondition:
-      'Bütün Qətillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 42,
   },
+  ELDER: {
+    role: 'ELDER',
+    nameAz: 'Ağsaqqal',
+    nameEn: 'Elder',
+    displayName: 'Ağsaqqal (Elder)',
+    icon: '🧓',
+    faction: 'VILLAGE',
+    factionLabel: 'Normal',
+    shortDescription:
+      'Gecə ilk Qatil hücumundan sağ çıxır (2 canı var). Lakin kənd səsverməsi ilə edam edilərsə, bütün Normal rollar xüsusi güclərini itirir!',
+    winCondition:
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+    hasNightAction: false,
+    nightTurnPriority: 99,
+  },
+  BEAR_TAMER: {
+    role: 'BEAR_TAMER',
+    nameAz: 'Ayı Təlimçisi',
+    nameEn: 'Bear Tamer',
+    displayName: 'Ayı Təlimçisi (Bear Tamer)',
+    icon: '🐻',
+    faction: 'VILLAGE',
+    factionLabel: 'Normal',
+    shortDescription:
+      'Səhər açıldıqda tonqal ətrafında sağ və ya sol qonşusundan ən azı biri Qatil olarsa, ayı hamıya nərildəyir.',
+    winCondition:
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+    hasNightAction: false,
+    nightTurnPriority: 99,
+  },
+  CROW: {
+    role: 'CROW',
+    nameAz: 'Qarğa',
+    nameEn: 'Crow',
+    displayName: 'Qarğa (Crow)',
+    icon: '🐦‍⬛',
+    faction: 'VILLAGE',
+    factionLabel: 'Normal',
+    shortDescription:
+      'Hər gecə 1 oyunçunu lənətləyir; lənətlənmiş oyunçu növbəti günün səsverməsinə +2 avtomatik cəza səsi ilə başlayır.',
+    winCondition:
+      'Bütün Qatillər və ölümcül Tərəfsizlər məhv edildikdə Normal komandası qazanır.',
+    hasNightAction: true,
+    nightTurnPriority: 30,
+  },
+  CUPID: {
+    role: 'CUPID',
+    nameAz: 'Kupid',
+    nameEn: 'Cupid',
+    displayName: 'Kupid (Cupid)',
+    icon: '💘',
+    faction: 'VILLAGE',
+    factionLabel: 'Normal',
+    shortDescription:
+      'Yalnız 1-ci gecə 2 oyunçunu Aşiq olaraq bağlayır. Aşiqlərdən biri ölərsə, digəri də kədərdən dərhal ölür.',
+    winCondition:
+      'Normal komandası ilə qazanır (əgər Aşiqlər Normal + Qatil cütüdürsə, son 2 sağ qalan kimi yalnız onlar qalib gəlir).',
+    hasNightAction: true,
+    nightTurnPriority: 5,
+  },
 
   // ==========================================
-  // 2. QƏTİL TEAM (Killer / Werewolf Team)
+  // 2. QATİL TEAM (Killer / Werewolf Team)
   // ==========================================
   WEREWOLF: {
     role: 'WEREWOLF',
@@ -161,12 +236,12 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     displayName: 'Canavar (Werewolf)',
     icon: '🐺',
     faction: 'WEREWOLF',
-    factionLabel: 'Qətil',
+    factionLabel: 'Qatil',
     isBaseFiller: true,
     shortDescription:
       'Hər gecə sürüsü ilə məsləhətləşib 1 qurbanı yemək üçün səs verir.',
     winCondition:
-      'Sağ Qətillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qətil komandası qazanır.',
+      'Sağ Qatillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qatil komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 30,
   },
@@ -177,11 +252,11 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     displayName: 'Qara Canavar (Black Wolf)',
     icon: '🖤',
     faction: 'WEREWOLF',
-    factionLabel: 'Qətil',
+    factionLabel: 'Qatil',
     shortDescription:
       'Oyun boyu 1 dəfə sürünün hədəfini öldürmək əvəzinə yoluxduraraq gizlicə Canavara çevirə bilər.',
     winCondition:
-      'Sağ Qətillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qətil komandası qazanır.',
+      'Sağ Qatillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qatil komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 46,
   },
@@ -192,13 +267,43 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     displayName: 'Mistik Canavar (Mystic Wolf)',
     icon: '👁️‍🗨️',
     faction: 'WEREWOLF',
-    factionLabel: 'Qətil',
+    factionLabel: 'Qatil',
     shortDescription:
       'Hər gecə 1 qeyri-Canavar oyunçunu yoxlayaraq onun xüsusi Normal/Tərəfsiz gücə sahib olub-olmadığını öyrənir.',
     winCondition:
-      'Sağ Qətillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qətil komandası qazanır.',
+      'Sağ Qatillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qatil komandası qazanır.',
     hasNightAction: true,
     nightTurnPriority: 22,
+  },
+  VENGEFUL_WOLF: {
+    role: 'VENGEFUL_WOLF',
+    nameAz: 'İntiqamçı Qurd',
+    nameEn: 'Vengeful Wolf',
+    displayName: 'İntiqamçı Qurd (Vengeful Wolf)',
+    icon: '🩸',
+    faction: 'WEREWOLF',
+    factionLabel: 'Qatil',
+    shortDescription:
+      'Sürü ilə gecə ovlayır. Gündüz kənd səsverməsi ilə edam edilərsə, dərhal sağ qalan 1 oyunçunu özü ilə aparır.',
+    winCondition:
+      'Sağ Qatillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qatil komandası qazanır.',
+    hasNightAction: true,
+    nightTurnPriority: 40,
+  },
+  SHADOW_WOLF: {
+    role: 'SHADOW_WOLF',
+    nameAz: 'Kölgə Qurd',
+    nameEn: 'Shadow Wolf',
+    displayName: 'Kölgə Qurd (Shadow Wolf)',
+    icon: '🌑',
+    faction: 'WEREWOLF',
+    factionLabel: 'Qatil',
+    shortDescription:
+      'Sürü ilə gecə ovlayır. Oyun boyu 1 dəfə gündüz səsverməsində bütün canlı səs saylarını səsvermə bitənə qədər gizlədə bilər.',
+    winCondition:
+      'Sağ Qatillərin sayı digər bütün sağ oyunçulara bərabər və ya çox olduqda Qatil komandası qazanır.',
+    hasNightAction: true,
+    nightTurnPriority: 40,
   },
 
   // ==========================================
@@ -227,7 +332,7 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     faction: 'NEUTRAL',
     factionLabel: 'Tərəfsiz',
     shortDescription:
-      'Qətil komandasına adi Canavar kimi görünür. Hər 2 gecədən bir (cüt gecələr) gizlicə 1 Canavarı öldürə bilər.',
+      'Qatil komandasına adi Canavar kimi görünür. Hər 2 gecədən bir (cüt gecələr) gizlicə 1 Canavarı öldürə bilər.',
     winCondition: 'Yalnız oyunda sağ qalan sonuncu tək oyunçu olduqda qazanır.',
     hasNightAction: true,
     nightTurnPriority: 60,
@@ -245,5 +350,34 @@ export const ROLE_DEFINITIONS: Record<RoleType, RoleDefinition> = {
     winCondition: 'Oyunda sağ qalan sonuncu oyunçu olduqda qazanır.',
     hasNightAction: true,
     nightTurnPriority: 70,
+  },
+  JESTER: {
+    role: 'JESTER',
+    nameAz: 'Təlxək',
+    nameEn: 'Jester',
+    displayName: 'Təlxək (Jester)',
+    icon: '🃏',
+    faction: 'NEUTRAL',
+    factionLabel: 'Tərəfsiz',
+    shortDescription:
+      'İstənilən gündüz səsverməsində kəndliləri aldadıb özünü edam etdirərsə, oyunu dərhal təkbaşına qazanır!',
+    winCondition: 'Hər hansı bir gündüz səsverməsində kənd tərəfindən edam edilmək.',
+    hasNightAction: false,
+    nightTurnPriority: 99,
+  },
+  WILD_CHILD: {
+    role: 'WILD_CHILD',
+    nameAz: 'Vəhşi Uşaq',
+    nameEn: 'Wild Child',
+    displayName: 'Vəhşi Uşaq (Wild Child)',
+    icon: '🐾',
+    faction: 'NEUTRAL',
+    factionLabel: 'Tərəfsiz',
+    shortDescription:
+      'Normal komandasında başlayır. 1-ci gecə 1 Rol Model seçir; həmin şəxs ölərsə gizlicə Canavara (Qatil) çevrilir.',
+    winCondition:
+      'Rol Modeli sağ qaldıqda Normal ilə, öləndən sonra Canavara çevrilib Qatil komandası ilə qazanır.',
+    hasNightAction: true,
+    nightTurnPriority: 6,
   },
 };

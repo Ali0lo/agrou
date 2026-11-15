@@ -13,7 +13,7 @@ import { getRoleStrategy } from './RoleStrategies.js';
 export class NightResolver {
   /**
    * Executes deterministic night turn resolution:
-   * Guard -> Qətil Pack Vote -> Witch -> Black Wolf Infect -> White Wolf
+   * Guard -> Qatil Pack Vote -> Witch -> Black Wolf Infect -> White Wolf
    * -> Seer & Mystic Wolf -> Arsonist Douse/Ignite -> Morning Aggregation
    */
   static resolve(room: RoomState): NightResolutionContext {
@@ -37,10 +37,18 @@ export class NightResolver {
       }
     };
 
+    // Reset previous night's Crow curse before resolving tonight's actions
+    room.cursedPlayerId = null;
+
+    // 0. Night 1 setup roles (Cupid, Wild Child) & Crow curse (apply before deaths)
+    runRole('CUPID');
+    runRole('WILD_CHILD');
+    runRole('CROW');
+
     // 1. Guard protection
     runRole('GUARD');
 
-    // 2. Consensus Qətil pack victim + Witch potions + Black Wolf infect + White Wolf betrayal
+    // 2. Consensus Qatil pack victim + Witch potions + Black Wolf infect + White Wolf betrayal
     context.wolfVictimId = computeConsensusWolfTarget(room);
     runRole('WITCH');
     runRole('BLACK_WOLF');
@@ -73,7 +81,7 @@ export class NightResolver {
     // 6. Aggregate Morning Deaths
     const pendingDeaths = new Map<string, DeathCause>();
 
-    // 6a. Pack Wolf Victim (blocked by Guard, Witch Heal, or Black Wolf Infection)
+    // 6a. Pack Wolf Victim (blocked by Guard, Witch Heal, Black Wolf Infection, or Elder's extra life)
     if (
       context.wolfVictimId &&
       !context.protectedPlayerIds.has(context.wolfVictimId) &&
@@ -84,7 +92,14 @@ export class NightResolver {
         (p) => p.id === context.wolfVictimId && p.isAlive
       );
       if (victim) {
-        pendingDeaths.set(victim.id, 'WEREWOLVES');
+        if (victim.role === 'ELDER' && victim.elderLivesRemaining > 1) {
+          victim.elderLivesRemaining -= 1;
+        } else {
+          if (victim.role === 'ELDER') {
+            victim.elderLivesRemaining = 0;
+          }
+          pendingDeaths.set(victim.id, 'WEREWOLVES');
+        }
       }
     }
 
@@ -121,6 +136,9 @@ export class NightResolver {
       this.eliminatePlayer(room, playerId, cause, 'NIGHT_PHASE', context.casualties);
     }
 
+    // Transform any living Wild Child whose Role Model died tonight
+    this.applyWildChildTransformations(room);
+
     // Clean any eliminated targets from future Arsonist doused list
     room.arsonistDousedIds = room.arsonistDousedIds.filter((id) =>
       room.players.some((p) => p.id === id && p.isAlive)
@@ -139,7 +157,8 @@ export class NightResolver {
   }
 
   /**
-   * Eliminates a player and respects `room.config.revealDeadRoles`.
+   * Eliminates a player, cascades Cupid Lovers Heartbreak (`HEARTBREAK`),
+   * and respects `room.config.revealDeadRoles`.
    */
   static eliminatePlayer(
     room: RoomState,
@@ -167,14 +186,55 @@ export class NightResolver {
       cause,
     });
 
+    // Cupid Heartbreak cascade: if the victim had a living Lover, that Lover dies too
+    if (player.loverPartnerId) {
+      const partner = room.players.find(
+        (p) => p.id === player.loverPartnerId && p.isAlive
+      );
+      if (partner) {
+        this.eliminatePlayer(room, partner.id, 'HEARTBREAK', phase, casualtiesList);
+      }
+    }
+
     return player;
+  }
+
+  /**
+   * Checks whether any living Wild Child lost their Role Model and secretly
+   * transforms them into a WEREWOLF (Qatil team). Returns newly transformed players.
+   */
+  static applyWildChildTransformations(room: RoomState): PlayerState[] {
+    const transformed: PlayerState[] = [];
+    for (const player of room.players) {
+      if (!player.isAlive || player.role !== 'WILD_CHILD' || !player.roleModelId) {
+        continue;
+      }
+      const model = room.players.find((p) => p.id === player.roleModelId);
+      if (model && !model.isAlive) {
+        player.role = 'WEREWOLF';
+        player.faction = 'WEREWOLF';
+        player.transformedFromWildChild = true;
+        transformed.push(player);
+        room.messages.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          senderId: 'SYSTEM',
+          senderName: 'Qatil Səsi',
+          senderColor: '#ef4444',
+          channel: 'wolves',
+          channelBadge: '🐺 Qatil Çatı',
+          content: `🐾 ${player.nickname} (Vəhşi Uşaq) Rol Modelini itirdi və gizlicə Qatil (Canavar) komandasına qoşuldu!`,
+          timestamp: Date.now(),
+        });
+      }
+    }
+    return transformed;
   }
 }
 
 export function formatDeathCause(cause: DeathCause): string {
   switch (cause) {
     case 'WEREWOLVES':
-      return 'Qətil canavarlar tərəfindən parçalandı (Devoured by Wolves)';
+      return 'Qatil canavarlar tərəfindən parçalandı (Devoured by Wolves)';
     case 'WITCH_POISON':
       return 'Cadugərin ölüm iksiri ilə zəhərləndi (Poisoned by the Witch)';
     case 'WHITE_WOLF':
@@ -183,6 +243,10 @@ export function formatDeathCause(cause: DeathCause): string {
       return 'Alovçunun alovuna qərq oldu (Burned by the Arsonist)';
     case 'HUNTER_SHOT':
       return 'Ovçunun son gülləsi ilə vuruldu (Shot by the dying Hunter)';
+    case 'VENGEFUL_WOLF_SHOT':
+      return 'İntiqamçı Qurdun son hücumu ilə öldürüldü (Dragged down by Vengeful Wolf)';
+    case 'HEARTBREAK':
+      return 'Aşiqi öldüyü üçün kədərdən öldü (Died of Heartbreak)';
     case 'EXECUTION':
       return 'Kənd məhkəməsi tərəfindən edam edildi (Executed by Village Vote)';
   }

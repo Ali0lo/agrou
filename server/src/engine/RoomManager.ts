@@ -689,6 +689,22 @@ export class RoomManager {
     return {};
   }
 
+  public handleShadowWolfHideVotes(
+    roomCode: string,
+    playerId: string
+  ): { error?: string } {
+    const room = this.getRoom(roomCode);
+    if (!room) return { error: 'Room not found.' };
+
+    const result = GameEngine.activateShadowWolfHideVotes(room, playerId);
+    if (!result.valid) {
+      return { error: result.error };
+    }
+
+    this.broadcastSanitizedState(roomCode);
+    return {};
+  }
+
   public handleHunterShot(
     roomCode: string,
     hunterId: string,
@@ -975,6 +991,44 @@ export class RoomManager {
             targetId: target.id,
           });
         }
+      } else if (bot.role === 'CROW' && !room.villagePowersLost) {
+        const others = alivePlayers.filter((p) => p.id !== bot.id);
+        if (others.length > 0) {
+          const target = others[crypto.randomInt(0, others.length)];
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'CROW_CURSE',
+            targetId: target.id,
+          });
+        }
+      } else if (
+        bot.role === 'CUPID' &&
+        !room.villagePowersLost &&
+        room.nightNumber === 1 &&
+        !room.cupidLinked &&
+        alivePlayers.length >= 2
+      ) {
+        const firstIdx = crypto.randomInt(0, alivePlayers.length);
+        const first = alivePlayers[firstIdx];
+        const remaining = alivePlayers.filter((p) => p.id !== first.id);
+        const second = remaining[crypto.randomInt(0, remaining.length)];
+        GameEngine.submitNightAction(room, bot.id, {
+          actionType: 'CUPID_LINK',
+          targetId: first.id,
+          secondTargetId: second.id,
+        });
+      } else if (
+        bot.role === 'WILD_CHILD' &&
+        room.nightNumber === 1 &&
+        !bot.roleModelId
+      ) {
+        const others = alivePlayers.filter((p) => p.id !== bot.id);
+        if (others.length > 0) {
+          const model = others[crypto.randomInt(0, others.length)];
+          GameEngine.submitNightAction(room, bot.id, {
+            actionType: 'WILD_CHILD_MODEL',
+            targetId: model.id,
+          });
+        }
       }
     }
 
@@ -987,6 +1041,13 @@ export class RoomManager {
 
     const alivePlayers = room.players.filter((p) => p.isAlive);
     for (const bot of alivePlayers.filter((p) => p.isBot)) {
+      if (
+        bot.role === 'SHADOW_WOLF' &&
+        room.shadowWolfAbilityAvailable &&
+        crypto.randomInt(0, 2) === 0
+      ) {
+        GameEngine.activateShadowWolfHideVotes(room, bot.id);
+      }
       const others = alivePlayers.filter((p) => p.id !== bot.id);
       if (others.length > 0) {
         const target = others[crypto.randomInt(0, others.length)];

@@ -31,6 +31,7 @@ interface PhaseActionToolbarProps {
   onToggleLittleGirlPeek: (peeking: boolean) => void;
   onToggleSkipDiscussion: () => void;
   onCastDayVote: (targetId: string | 'SKIP' | null) => void;
+  onShadowHideVotes: () => void;
   onPlayAgain: () => void;
 }
 
@@ -38,6 +39,8 @@ const WOLF_ROLES: ReadonlySet<RoleType> = new Set([
   'WEREWOLF',
   'BLACK_WOLF',
   'MYSTIC_WOLF',
+  'VENGEFUL_WOLF',
+  'SHADOW_WOLF',
   'WHITE_WOLF',
 ]);
 
@@ -49,6 +52,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
   onToggleLittleGirlPeek,
   onToggleSkipDiscussion,
   onCastDayVote,
+  onShadowHideVotes,
   onPlayAgain,
 }) => {
   const self = room.self;
@@ -60,12 +64,13 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
   const findName = (id: string | null | undefined) =>
     room.players.find((p) => p.id === id)?.nickname ?? 'Naməlum';
 
-  // Active Hunter Interrupt Banner overrides regular phase toolbar
+  // Active Hunter / Vengeful Wolf Interrupt Banner overrides regular phase toolbar
   if (room.hunterRevenge && !room.hunterRevenge.resolved) {
     const hunter = room.players.find(
       (p) => p.id === room.hunterRevenge?.hunterId
     );
     const isMeHunter = self?.playerId === room.hunterRevenge.hunterId;
+    const isVengeful = room.hunterRevenge.revengeRole === 'VENGEFUL_WOLF';
 
     return (
       <div className="rounded-2xl bg-gradient-to-r from-red-950/90 via-amber-950/80 to-red-950/90 border border-amber-500/60 p-4 shadow-xl">
@@ -75,12 +80,14 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           </div>
           <div>
             <div className="text-sm font-bold text-amber-200">
-              🏹 OVÇU İNTİQAMI — {hunter?.nickname} son gülləsini atır!
+              {isVengeful
+                ? `🩸 İNTİQAMÇI QURD — ${hunter?.nickname} son qurbanını seçir!`
+                : `🏹 OVÇU İNTİQAMI — ${hunter?.nickname} son gülləsini atır!`}
             </div>
             <div className="text-xs text-slate-300 mt-0.5">
               {isMeHunter
                 ? 'İntiqam almaq üçün tonqaldan istənilən sağ oyunçuya 15 saniyə içində klikləyin!'
-                : 'Ovçu hədəfini seçənə qədər taymer dayandırılıb.'}
+                : 'Ölən oyunçu hədəfini seçənə qədər taymer dayandırılıb.'}
             </div>
           </div>
         </div>
@@ -115,6 +122,8 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
     const roleMeta = ROLE_CATALOG[self.role];
     const isWolf = WOLF_ROLES.has(self.role);
     const dousedCount = self.arsonistDousedTargetIds.length;
+    const isVillageActiveLocked =
+      room.villagePowersLost && roleMeta.faction === 'VILLAGE';
 
     return (
       <div className="rounded-2xl bg-indigo-950/60 border border-indigo-500/35 p-3.5 flex flex-col gap-2.5 shadow-xl">
@@ -126,31 +135,55 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                 {roleMeta.displayName} — Gecə Hərəkəti
               </div>
               <div className="text-[11px] text-indigo-200/80">
-                {isWolf &&
+                {isVillageActiveLocked &&
+                  '⚠️ Ağsaqqal edam edildiyi üçün Normal rolların xüsusi gücləri itirilib — bu gecə yatırsınız.'}
+                {!isVillageActiveLocked &&
+                  isWolf &&
                   activeNightMode !== 'MYSTIC_WOLF_INSPECT' &&
                   activeNightMode !== 'WHITE_WOLF_KILL' &&
                   '🩸 Sürü qurbanını seçmək üçün sağ oyunçuya klikləyin.'}
-                {isWolf &&
+                {!isVillageActiveLocked &&
+                  isWolf &&
                   activeNightMode === 'MYSTIC_WOLF_INSPECT' &&
                   '👁️ GÜC YOXLAMA REJİMİ: Hədəfin xüsusi gücü olub-olmadığını görmək üçün oyunçuya klikləyin.'}
-                {isWolf &&
+                {!isVillageActiveLocked &&
+                  isWolf &&
                   activeNightMode === 'WHITE_WOLF_KILL' &&
-                  '🗡️ XƏYANƏT REJİMİ: Öldürmək üçün bir Qətil yoldaşınıza klikləyin.'}
-                {self.role === 'SEER' &&
+                  '🗡️ XƏYANƏT REJİMİ: Öldürmək üçün bir Qatil yoldaşınıza klikləyin.'}
+                {!isVillageActiveLocked &&
+                  self.role === 'SEER' &&
                   '🔮 Əsl rolunu görmək üçün bir oyunçuya klikləyin.'}
-                {self.role === 'GUARD' &&
+                {!isVillageActiveLocked &&
+                  self.role === 'GUARD' &&
                   '🛡️ Qorumaq üçün bir oyunçuya klikləyin (ard-arda eyni şəxs olmaz).'}
-                {self.role === 'WITCH' &&
+                {!isVillageActiveLocked &&
+                  self.role === 'WITCH' &&
                   (activeNightMode === 'WITCH_POISON'
                     ? '☠️ ZƏHƏR REJİMİ: Zəhərləmək üçün sağ bir oyunçuya klikləyin.'
                     : '🧪 Gecə qurbanını Xilas İksiri ilə dirildə və ya Zəhər rejimini aça bilərsiniz.')}
-                {self.role === 'LITTLE_GIRL' &&
-                  '👧 Qətillərin gecə çatını gizlicə dinləyə bilərsiniz — amma diqqətli olun!'}
+                {!isVillageActiveLocked &&
+                  self.role === 'LITTLE_GIRL' &&
+                  '👧 Qatillərin gecə çatını gizlicə dinləyə bilərsiniz — amma diqqətli olun!'}
+                {!isVillageActiveLocked &&
+                  self.role === 'CROW' &&
+                  '🐦‍⬛ Sabah səsverməsinə +2 cəza səsi ilə başlaması üçün 1 oyunçuya klikləyin.'}
+                {!isVillageActiveLocked &&
+                  self.role === 'CUPID' &&
+                  (room.nightNumber === 1
+                    ? '💘 Aşiq olaraq bağlamaq üçün ardıcıl 2 fərqli oyunçuya klikləyin.'
+                    : '💘 Aşiqlər artıq bağlanıb — bu gecə yatırsınız.')}
+                {self.role === 'WILD_CHILD' &&
+                  (room.nightNumber === 1 && !self.roleModelId
+                    ? '🐾 Özünüzə 1 Rol Model seçmək üçün sağ bir oyunçuya klikləyin.'
+                    : `🐾 Rol Modeliniz seçilib (${findName(self.roleModelId)}). Bu gecə yatırsınız.`)}
                 {self.role === 'ARSONIST' &&
                   `🛢️ Benzin tökmək üçün bir oyunçuya klikləyin (${dousedCount} benzinli), yaxud Alovlandırın.`}
                 {(self.role === 'VILLAGER' ||
                   self.role === 'HUNTER' ||
-                  self.role === 'ANGEL') &&
+                  self.role === 'ELDER' ||
+                  self.role === 'BEAR_TAMER' ||
+                  self.role === 'ANGEL' ||
+                  self.role === 'JESTER') &&
                   '😴 Kənd gecə yatır. Gündüzün açılmasını gözləyin.'}
               </div>
             </div>
@@ -247,7 +280,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           )}
 
           {/* WITCH Potions */}
-          {self.role === 'WITCH' && (
+          {self.role === 'WITCH' && !isVillageActiveLocked && (
             <>
               <button
                 type="button"
@@ -303,7 +336,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           )}
 
           {/* LITTLE GIRL Peek & Exposure Bar */}
-          {self.role === 'LITTLE_GIRL' && (
+          {self.role === 'LITTLE_GIRL' && !isVillageActiveLocked && (
             <div className="flex flex-wrap items-center gap-3 w-full">
               <button
                 type="button"
@@ -322,7 +355,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                 ) : (
                   <>
                     <Eye className="w-3.5 h-3.5" />
-                    👀 Qətil Çatına Gizlicə Bax
+                    👀 Qatil Çatına Gizlicə Bax
                   </>
                 )}
               </button>
@@ -391,6 +424,13 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
         <div className="text-xs font-bold uppercase tracking-wider text-amber-300">
           🌅 {room.dayNumber}-ci Gün Açıldı — Gecə Xülasəsi
         </div>
+
+        {room.lastBearGrowled && (
+          <div className="text-xs text-amber-100 bg-amber-600/25 border border-amber-400/60 rounded-lg px-2.5 py-1.5 font-bold">
+            🐻 Ayı nərildəyir! (The bear growls!) Ayı Təlimçisinin yanında bir Qatil oturub!
+          </div>
+        )}
+
         {room.lastNightCasualties.length === 0 ? (
           <div className="text-sm text-emerald-200 font-medium">
             🛡️ Bu gecə kənddə heç kim ölmədi! Bütün oyunçular sağdır.
@@ -404,7 +444,11 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
                   key={c.playerId}
                   className="text-xs text-red-200 bg-red-950/50 border border-red-500/30 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2"
                 >
-                  <span className="font-semibold">💀 {c.nickname} öldü</span>
+                  <span className="font-semibold">
+                    {c.cause === 'HEARTBREAK'
+                      ? `💔 ${c.nickname} kədərdən öldü`
+                      : `💀 ${c.nickname} öldü`}
+                  </span>
                   {info ? (
                     <span className="text-slate-200">
                       {info.icon} Rolu: <strong>{info.displayName}</strong>
@@ -435,7 +479,9 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
             ☀️ {room.dayNumber}-ci Gün Müzakirəsi
           </div>
           <div className="text-[11px] text-slate-300">
-            Şübhəliləri müzakirə edin. Hazırsınızsa, səsverməyə erkən keçin.
+            {room.cursedPlayerId
+              ? `🐦‍⬛ Qarğa lənəti: ${findName(room.cursedPlayerId)} (+2 cəza səsi). Şübhəliləri müzakirə edin!`
+              : 'Şübhəliləri müzakirə edin. Hazırsınızsa, səsverməyə erkən keçin.'}
           </div>
         </div>
 
@@ -460,14 +506,29 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
   // DAY_VOTING Banner
   if (room.phase === 'DAY_VOTING') {
     const myVote = selfPlayer ? room.dayVotes[selfPlayer.id] : undefined;
+    const canShadowHide =
+      isAlive &&
+      self?.role === 'SHADOW_WOLF' &&
+      Boolean(self.shadowWolfAbilityAvailable) &&
+      !room.dayVotesHidden;
 
     return (
       <div className="rounded-2xl bg-slate-900/85 border border-orange-500/45 p-3.5 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Vote className="w-5 h-5 text-orange-400 shrink-0" />
           <div>
-            <div className="text-xs font-bold text-orange-200">
-              🗳️ Edam Səsverməsi
+            <div className="text-xs font-bold text-orange-200 flex items-center gap-2 flex-wrap">
+              <span>🗳️ Edam Səsverməsi</span>
+              {room.cursedPlayerId && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-indigo-200">
+                  🐦‍⬛ {findName(room.cursedPlayerId)} (+2 Cəza Səsi)
+                </span>
+              )}
+              {room.dayVotesHidden && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-600/30 border border-purple-400/50 text-purple-200">
+                  🌑 Səslər Gizlidir
+                </span>
+              )}
             </div>
             <div className="text-[11px] text-slate-300">
               {isAlive
@@ -481,21 +542,33 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           </div>
         </div>
 
-        {isAlive && (
-          <button
-            type="button"
-            onClick={() =>
-              onCastDayVote(myVote === 'SKIP' ? null : 'SKIP')
-            }
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-              myVote === 'SKIP'
-                ? 'bg-slate-200 text-slate-950 border-white'
-                : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'
-            }`}
-          >
-            🕊️ Keç (SKIP)
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {canShadowHide && (
+            <button
+              type="button"
+              onClick={onShadowHideVotes}
+              className="px-3 py-2 rounded-xl text-xs font-semibold bg-purple-700/80 hover:bg-purple-600 text-white border border-purple-400/60 transition cursor-pointer"
+            >
+              🌑 Səsləri Gizlət (1x)
+            </button>
+          )}
+
+          {isAlive && (
+            <button
+              type="button"
+              onClick={() =>
+                onCastDayVote(myVote === 'SKIP' ? null : 'SKIP')
+              }
+              className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+                myVote === 'SKIP'
+                  ? 'bg-slate-200 text-slate-950 border-white'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-600'
+              }`}
+            >
+              🕊️ Keç (SKIP)
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -506,7 +579,7 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
     const exInfo = ex && ex.role !== 'UNKNOWN' ? ROLE_CATALOG[ex.role] : null;
 
     return (
-      <div className="rounded-2xl bg-slate-900/85 border border-red-500/40 p-3.5 text-xs">
+      <div className="rounded-2xl bg-slate-900/85 border border-red-500/40 p-3.5 text-xs space-y-1.5">
         {ex ? (
           <div className="flex flex-wrap items-center justify-between gap-2 text-red-200">
             <span className="font-bold">
@@ -527,6 +600,11 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
             ⚖️ Səsvermədə heç kim edam edilmədi. Tezliklə gecə düşür...
           </div>
         )}
+        {room.villagePowersLost && (
+          <div className="text-[11px] text-amber-300 font-semibold">
+            ⚠️ Ağsaqqal edam edildiyi üçün Normal komandasının xüsusi gücləri itirilib!
+          </div>
+        )}
       </div>
     );
   }
@@ -540,11 +618,15 @@ export const PhaseActionToolbar: React.FC<PhaseActionToolbarProps> = ({
           ? 'from-red-950/90 to-slate-900 border-red-400/60 text-red-200'
           : room.winner === 'ANGEL'
             ? 'from-yellow-950/80 to-slate-900 border-yellow-400/60 text-yellow-200'
-            : room.winner === 'WHITE_WOLF'
-              ? 'from-slate-800 to-slate-950 border-slate-300/60 text-slate-100'
-              : room.winner === 'ARSONIST'
-                ? 'from-orange-950/90 to-slate-900 border-orange-400/60 text-orange-200'
-                : 'from-slate-900 to-slate-950 border-slate-500/60 text-slate-200';
+            : room.winner === 'JESTER'
+              ? 'from-purple-950/90 to-slate-900 border-purple-400/60 text-purple-200'
+              : room.winner === 'LOVERS'
+                ? 'from-pink-950/90 to-slate-900 border-pink-400/60 text-pink-200'
+                : room.winner === 'WHITE_WOLF'
+                  ? 'from-slate-800 to-slate-950 border-slate-300/60 text-slate-100'
+                  : room.winner === 'ARSONIST'
+                    ? 'from-orange-950/90 to-slate-900 border-orange-400/60 text-orange-200'
+                    : 'from-slate-900 to-slate-950 border-slate-500/60 text-slate-200';
 
     return (
       <div
